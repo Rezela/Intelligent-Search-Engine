@@ -9,6 +9,7 @@ from api import HKGAIClient
 import json
 import logging
 from logging.handlers import RotatingFileHandler
+import time
 
 # 日志配置：最大1MB一个文件，最多保留5个
 log_handler = RotatingFileHandler(
@@ -90,19 +91,32 @@ def main():
     query = "What is the capital of China?"
     logging.info(f"User query: {query}")  # 记录用户查询
 
+    # 计时：检索
+    t0 = time.time()
     context = rag.build_context(query, top_k=3)
+    t1 = time.time()
+    retrieval_time = t1 - t0
     logging.info(f"Retrieved context: {context}")  # 记录检索到的上下文
-    system_prompt, user_prompt = make_prompt(query, context)
+    logging.info(f"Retrieval time: {retrieval_time:.3f}s")
 
+    # 计时：LLM
+    system_prompt, user_prompt = make_prompt(query, context)
+    t2 = time.time()
     result = client.chat(system_prompt, user_prompt, max_tokens=256, temperature=0.0)
+    t3 = time.time()
+    llm_time = t3 - t2
+    total_time = t3 - t0
 
     logging.info(f"LLM raw response: {result['raw']}")
     logging.info(f"LLM final result: {result['content']}")  # 记录LLM的答案
+    logging.info(f"LLM call time: {llm_time:.3f}s")
+    logging.info(f"Total pipeline time: {total_time:.3f}s")
 
     print("=== Retrieved Context ===")
     print(context)
     print("\n=== LLM Answer ===")
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(f"\n[⏱️ Retrieval: {retrieval_time:.3f}s | LLM: {llm_time:.3f}s | Total: {total_time:.3f}s]")
 
 
 if __name__ == "__main__":
