@@ -8,12 +8,20 @@ from typing import List, Tuple
 from api import HKGAIClient
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 
-# 配置日志
+# 日志配置：最大1MB一个文件，最多保留5个
+log_handler = RotatingFileHandler(
+    "rag_engine.log",  # 日志文件名
+    maxBytes=1*1024*1024,  # 单个日志文件最大1MB
+    backupCount=5,  # 最多保留5个旧日志文件
+    encoding="utf-8"
+)
+
 logging.basicConfig(
-    filename="rag_engine.log",  # 日志文件名
-    level=logging.INFO,  # 日志等级：DEBUG / INFO / WARNING / ERROR
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[log_handler, logging.StreamHandler()]  # 同时输出到文件和控制台
 )
 
 
