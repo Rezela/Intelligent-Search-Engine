@@ -7,6 +7,14 @@ from sentence_transformers import SentenceTransformer
 from typing import List, Tuple
 from api import HKGAIClient
 import json
+import logging
+
+# 配置日志
+logging.basicConfig(
+    filename="rag_engine.log",  # 日志文件名
+    level=logging.INFO,  # 日志等级：DEBUG / INFO / WARNING / ERROR
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 
 # Minimal RAG pipeline
@@ -72,11 +80,17 @@ def main():
     rag = MinimalRAG(docs)
     client = HKGAIClient()
     query = "What is the capital of China?"
+    logging.info(f"User query: {query}")  # 记录用户查询
 
     context = rag.build_context(query, top_k=3)
+    logging.info(f"Retrieved context: {context}")  # 记录检索到的上下文
     system_prompt, user_prompt = make_prompt(query, context)
 
     result = client.chat(system_prompt, user_prompt, max_tokens=256, temperature=0.0)
+
+    logging.info(f"LLM raw response: {result['raw']}")
+    logging.info(f"LLM final result: {result['content']}")  # 记录LLM的答案
+
     print("=== Retrieved Context ===")
     print(context)
     print("\n=== LLM Answer ===")
