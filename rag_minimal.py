@@ -8,10 +8,13 @@ from typing import List, Tuple
 from api import HKGAIClient
 import json
 import logging
-from logging.handlers import RotatingFileHandler
+# from logging.handlers import RotatingFileHandler
 import time
 import datetime
 import os
+
+import logs
+from logs import init_logger
 
 '''
 # 日志轮换：最大1MB一个文件，最多保留5个
@@ -22,22 +25,6 @@ log_handler = RotatingFileHandler(
     encoding="utf-8"
 )
 '''
-
-# 带时间戳的日志文件
-log_dir = os.path.join(os.path.dirname(__file__), "logs")
-os.makedirs(log_dir, exist_ok=True)
-log_filename = os.path.join(
-    log_dir,
-    f"rag_engine_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-)
-
-logging.basicConfig(
-    filename=log_filename,
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
-logging.info("Log file saved to %s", log_filename)
 
 # Minimal RAG pipeline
 class MinimalRAG:
@@ -133,4 +120,5 @@ def main():
 
 
 if __name__ == "__main__":
+    log_filename = init_logger()
     main()
