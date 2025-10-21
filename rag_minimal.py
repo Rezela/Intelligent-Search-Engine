@@ -13,18 +13,23 @@ import time
 import datetime
 import os
 
-# 日志配置：最大1MB一个文件，最多保留5个
+'''
+# 日志轮换：最大1MB一个文件，最多保留5个
 log_handler = RotatingFileHandler(
     "rag_engine.log",  # 日志文件名
     maxBytes=1*1024*1024,  # 单个日志文件最大1MB
     backupCount=5,  # 最多保留5个旧日志文件
     encoding="utf-8"
 )
+'''
 
 # 带时间戳的日志文件
 log_dir = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(log_dir, exist_ok=True)
-log_filename = f"logs/rag_engine_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+log_filename = os.path.join(
+    log_dir,
+    f"rag_engine_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+)
 
 logging.basicConfig(
     filename=log_filename,
