@@ -1,6 +1,7 @@
 import logging
 import datetime
 import os
+import uuid
 
 def init_logger(log_name: str = "rag_engine") -> str:
     """
@@ -18,15 +19,26 @@ def init_logger(log_name: str = "rag_engine") -> str:
         f"{log_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     )
 
-    # 配置日志：同时写入文件和控制台
+    # 配置日志写入文件
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[
             logging.FileHandler(log_filename, encoding="utf-8"),
-            logging.StreamHandler()
+            # logging.StreamHandler()
         ]
     )
 
     logging.info("Logs saved to %s", log_filename)
     return log_filename
+
+
+
+def new_query_id() -> str:
+    """
+    生成唯一查询 ID
+    :return: UUID 字符串
+    """
+    QueryID = uuid.uuid4()
+    logging.info(f"Query ID: %s", QueryID)
+    return str(QueryID)
