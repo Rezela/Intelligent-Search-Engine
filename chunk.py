@@ -1,3 +1,4 @@
+import re
 from typing import List
 import spacy
 # 需要先运行: pip install spacy
@@ -60,9 +61,21 @@ def split_into_sentences(docs: str, max_chunk_size: int = 100) -> List[str]:
             if current_chunk:
                 chunks.append(current_chunk.strip())  # 已经累积好的current_chunk作为一个完整块存入chunks
             if len(sent_text) > max_chunk_size:  # 当前sent_text自身就过长，在句子内细切
+                sub_sents = re.split(r'. |，|。|！|？', sent_text)
+                current = ""
+                for i in range(len(sub_sents)):
+                    if len(current) + len(sub_sents) <= max_chunk_size:
+                        current += " " + sub_sents[i]
+                    else:
+                        chunks.append(current.strip())
+                        current = sub_sents[i]
+                if current:
+                    chunks.append(current.strip())
+                '''
                 for i in range(0, len(sent_text), max_chunk_size):
                     chunks.append(sent_text[i:i+max_chunk_size])
                 current_chunk = ""  # 重置current_chunk
+                '''
             else:
                 current_chunk = sent_text  # 当前sent_text足够短，直接作为新块起点
     if current_chunk:
