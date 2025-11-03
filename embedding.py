@@ -1,4 +1,3 @@
-from chunk import split_into_sentences
 from sentence_transformers import SentenceTransformer
 from typing import List
 
@@ -7,10 +6,22 @@ chinese_embedding_model = SentenceTransformer('shibing624/text2vec-base-chinese'
 
 def embed_chunk(chunk: str, language : str= 'English') -> List[float]:
     if language == 'English':
-        embed = english_embedding_model.encode(chunk, normalize_embedding=True)
+        embed = english_embedding_model.encode(chunk, normalize_embeddings=True)
     elif language == 'Chinese':
-        embed = chinese_embedding_model.encode(chunk, normalize_embedding=True)
+        embed = chinese_embedding_model.encode(chunk, normalize_embeddings=True)
     else:
         # 处理不支持的语言，使用默认的英文模型
-        embed = english_embedding_model.encode(chunk, normalize_embedding=True)
+        embed = english_embedding_model.encode(chunk, normalize_embeddings=True)
     return embed.tolist()
+
+
+if __name__ == '__main__':
+    from chunk import split_into_sentences
+    docs = "doc.md"  # 文档名
+    chunk_size = 100  # 分块大小
+    chunks = split_into_sentences(docs, max_chunk_size=chunk_size)
+    embedding = []
+    for idx, chunk in enumerate(chunks, 1):
+        embedding.append(embed_chunk(chunk))
+    # print(embedding)
+    print(embedding[0])
