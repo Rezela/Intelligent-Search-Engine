@@ -18,12 +18,12 @@ if __name__ == '__main__':
     from chunk import split_into_sentences
     docs = "doc.md"  # 文档名
     chunk_size = 100  # 分块大小
-    chunks = split_into_sentences(docs, max_chunk_size=chunk_size)
+    chunks = split_into_sentences(docs, max_chunk_size=chunk_size, language='Chinese')
 
     from embedding import embed_chunk
     embeddings = []
     for idx, chunk in enumerate(chunks, 1):
-        embeddings.append(embed_chunk(chunk))
+        embeddings.append(embed_chunk(chunk, 'Chinese'))
 
     save_embeddings(chunks, embeddings)
 

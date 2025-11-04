@@ -4,6 +4,7 @@ from typing import List
 english_embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 chinese_embedding_model = SentenceTransformer('shibing624/text2vec-base-chinese')
 
+# 转换为embedding向量
 def embed_chunk(chunk: str, language : str= 'English') -> List[float]:
     if language == 'English':
         embed = english_embedding_model.encode(chunk, normalize_embeddings=True)
@@ -16,12 +17,15 @@ def embed_chunk(chunk: str, language : str= 'English') -> List[float]:
 
 
 if __name__ == '__main__':
+
     from chunk import split_into_sentences
     docs = "doc.md"  # 文档名
     chunk_size = 100  # 分块大小
-    chunks = split_into_sentences(docs, max_chunk_size=chunk_size)
-    embedding = []
+    chunks = split_into_sentences(docs, max_chunk_size=chunk_size, language='Chinese')
+
+    embeddings = []
     for idx, chunk in enumerate(chunks, 1):
-        embedding.append(embed_chunk(chunk))
+        embeddings.append(embed_chunk(chunk, 'Chinese'))
     # print(embedding)
-    print(embedding[0])
+    print("length of embeddings: ", len(embeddings))
+    print("embeddings: \n", embeddings[0])
