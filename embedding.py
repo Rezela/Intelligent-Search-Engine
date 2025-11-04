@@ -8,7 +8,8 @@ from typing import List
 # embedding模型全局缓存
 embedding_cache = {}
 embedding_models = {
-    'English': "sentence-transformers/all-MiniLM-L6-v2",  # 384 dimensional
+    # 'English': "sentence-transformers/all-MiniLM-L6-v2",  # 384 dimensional
+    'English': "sentence-transformers/all-mpnet-base-v2",  # 768 dimensional
     'Chinese': "shibing624/text2vec-base-chinese"  # 768 dimensional
 }
 
