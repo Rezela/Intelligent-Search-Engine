@@ -1,6 +1,8 @@
 import re
 from typing import List
 import spacy
+
+
 # 需要先运行: pip install spacy
 # 或: conda install -c conda-forge spacy
 
@@ -39,7 +41,25 @@ def split_into_paragraphs(docs: str, max_chunk_size: int = 1000) -> List[str]:
 # python -m spacy download zh_core_web_sm
 
 
-def split_into_sentences(docs: str, max_chunk_size: int = 100, language : str= 'English') -> List[str]:
+# chunk模型全局缓存
+chunk_cache = {}
+chunk_models = {
+    "English": "en_core_web_sm",
+    "Chinese": "zh_core_web_sm"
+}
+
+
+# Lazy loading chunk model
+def get_chunk_model(language: str):
+    if language not in chunk_cache:
+        if language not in chunk_models:
+            raise ValueError(f"Unsupported language: {language}")
+        # 加载模型
+        chunk_cache[language] = spacy.load(chunk_models[language])
+    return chunk_cache[language]
+
+
+def split_into_sentences(docs: str, max_chunk_size: int = 100, language: str = 'English') -> List[str]:
     """
     按句子分片，优先保持语义完整。
     如果句子过长，再进行二次切割。
@@ -48,13 +68,8 @@ def split_into_sentences(docs: str, max_chunk_size: int = 100, language : str= '
     with open(docs, 'r', encoding='utf-8') as file:
         content = file.read()
 
-
-    if language == 'English':
-        nlp_english = spacy.load("en_core_web_sm")  # 加载英文模型
-        doc = nlp_english(content)  # 使用英文模型
-    elif language == 'Chinese':
-        nlp_chinese = spacy.load("zh_core_web_sm")  # 加载中文模型
-        doc = nlp_chinese(content)  # 使用中文模型
+    chunk_model = get_chunk_model(language)
+    doc = chunk_model(content)
 
     current_chunk = ""
     for sent in doc.sents:  # 遍历句子
@@ -86,6 +101,7 @@ def split_into_sentences(docs: str, max_chunk_size: int = 100, language : str= '
     if current_chunk:
         chunks.append(current_chunk.strip())  # 提交尾部块
     return chunks
+
 
 if __name__ == "__main__":
     docs = "doc.md"  # 文档名
