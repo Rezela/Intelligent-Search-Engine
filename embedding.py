@@ -24,7 +24,7 @@ def get_embedding_model(language: str):
 
 
 # 转换为embedding向量
-def embed_chunk(chunk: str, language : str= 'English') -> List[float]:
+def embed_chunk(chunk: str, language : str= 'Chinese') -> List[float]:
     embedding_model = get_embedding_model(language)
     embed = embedding_model.encode(chunk, normalize_embeddings=True)
     return embed.tolist()
