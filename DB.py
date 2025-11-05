@@ -10,6 +10,19 @@ def save_embeddings(db, chunks: List[str], embeddings: List[List[float]]) -> Non
             ids=[str(i)]  # id: 索引
         )
 
+
+
+# 是否持久化数据库
+def get_db(persistent: bool = False, path: str = "chroma_db", name: str = "default"):
+    if persistent:
+        from chromadb import PersistentClient
+        client = PersistentClient(path=path)
+    else:
+        client = chromadb.EphemeralClient()
+    return client.get_or_create_collection(name=name)
+
+
+
 if __name__ == '__main__':
 
     from chunk import split_into_sentences
