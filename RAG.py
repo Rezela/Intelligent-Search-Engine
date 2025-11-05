@@ -70,9 +70,9 @@ class FullRAG:
 
 
 if __name__ == "__main__":
-    import chromadb
-    chromadb_client = chromadb.EphemeralClient()
-    db = chromadb_client.get_or_create_collection(name="default")
+    from DB import get_db
+    # 使用持久化数据库
+    db = get_db(persistent=True, path="./chroma_db", name="default")
 
     # 假设已经 save_embeddings(db, chunks, embeddings)
     rag = FullRAG(db)
@@ -80,9 +80,11 @@ if __name__ == "__main__":
     result = rag.query(query, language="Chinese")
 
     print("=== Retrieved ===")
-    print(result["retrieved"])
+    for i, chunk in enumerate(result["retrieved"], 1):
+        print(f"[{i}] {chunk}")
     print("\n=== Reranked ===")
-    print(result["reranked"])
+    for i, chunk in enumerate(result["reranked"], 1):
+        print(f"[{i}] {chunk}")
     print("\n=== Answer ===")
     print(result["answer"])
     print("\n=== Timing ===")
