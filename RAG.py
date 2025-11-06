@@ -28,15 +28,15 @@ class FullRAG:
     def query(self, user_query: str, language: str = "Chinese", top_k: int = 5):
         # Step 1: 检索
         t0 = time.time()
-        retrieved_chunks = chromadb_retrieve(self.db, user_query, language, top_k=top_k)
+        retrieved_results = chromadb_retrieve(self.db, user_query, language, top_k=top_k)
         t1 = time.time()
 
         # Step 2: rerank
-        reranked_chunks = rerank(user_query, retrieved_chunks, top_k=3)
+        reranked_results = rerank(user_query, [doc for doc, _ in retrieved_results], top_k=3)  # [(doc, score)]
         t2 = time.time()
 
         # Step 3: 构造上下文
-        context = "\n\n".join(reranked_chunks)
+        context = "\n\n".join([chunk for chunk, score in reranked_results])
 
         # Step 4: 调用 LLM
         system_prompt, user_prompt = make_prompt(user_query, context)
@@ -50,15 +50,15 @@ class FullRAG:
         total_time = t3 - t0
 
         logging.info(f"Query: {user_query}")
-        logging.info(f"Retrieved: {retrieved_chunks}")
-        logging.info(f"Reranked: {reranked_chunks}")
+        logging.info(f"Retrieved: {retrieved_results}")
+        logging.info(f"Reranked: {reranked_results}")
         logging.info(f"LLM Answer: {result['content']}")
         logging.info(f"Times [retrieval={retrieval_time:.3f}s, rerank={rerank_time:.3f}s, llm={llm_time:.3f}s, total={total_time:.3f}s]")
 
         return {
             "query": user_query,
-            "retrieved": retrieved_chunks,
-            "reranked": reranked_chunks,
+            "retrieved": retrieved_results,  # [(doc, score)]
+            "reranked": reranked_results,
             "answer": result["content"],
             "timing": {
                 "retrieval": retrieval_time,
@@ -79,12 +79,15 @@ if __name__ == "__main__":
     query = "哆啦A梦使用的3个秘密道具分别是什么？"
     result = rag.query(query, language="Chinese")
 
+
     print("=== Retrieved ===")
-    for i, chunk in enumerate(result["retrieved"], 1):
-        print(f"[{i}] {chunk}")
+    for i, (chunk, score) in enumerate(result["retrieved"], 1):
+        print(f"[{i}] (retrieval_score={score:.3f}) {chunk}")
+
     print("\n=== Reranked ===")
-    for i, chunk in enumerate(result["reranked"], 1):
-        print(f"[{i}] {chunk}")
+    for i, (chunk, score) in enumerate(result["reranked"], 1):
+        print(f"[{i}] (rerank_score={score:.3f}) {chunk}")
+
     print("\n=== Answer ===")
     print(result["answer"])
     print("\n=== Timing ===")
