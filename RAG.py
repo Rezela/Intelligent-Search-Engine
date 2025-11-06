@@ -50,6 +50,7 @@ class FullRAG:
         llm_time = t3 - t2
         total_time = t3 - t0
 
+        logging.info("==== New Query ====")  # 分隔符
         logging.info(f"Query: {user_query}")
         logging.info(f"Retrieved: {retrieved_results}")
         logging.info(f"Reranked: {reranked_results}")
