@@ -4,6 +4,7 @@ from rerank import rerank
 from typing import Tuple
 import time
 import logging
+from logs import init_logger, new_query_id
 
 # Prompt 构造
 def make_prompt(query: str, context: str) -> Tuple[str, str]:
@@ -71,6 +72,15 @@ class FullRAG:
 
 if __name__ == "__main__":
     from DB import get_db
+
+    # 初始化日志系统
+    log_filename = init_logger()
+    print(f"Log saved to: {log_filename}")
+
+    # 生成唯一查询 ID
+    query_id = new_query_id()
+    print(f"Query ID: {query_id}")
+
     # 使用持久化数据库
     db = get_db(persistent=True, path="./chroma_db", name="default")
 
