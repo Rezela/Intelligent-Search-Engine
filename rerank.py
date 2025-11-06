@@ -25,9 +25,7 @@ def rerank(query: str, retrieved_chunks: List[str], top_k: int=3):
     scored_chunks = list(zip(retrieved_chunks, scores))
     scored_chunks.sort(key=lambda x: x[1], reverse=True)
 
-    chunks = [chunk for chunk, _ in scored_chunks[:top_k]]
-    scores = [score for _, score in scored_chunks[:top_k]]
-    return chunks, scores
+    return scored_chunks[:top_k]   # [(chunk, score)]
 
 if __name__ =='__main__':
 
