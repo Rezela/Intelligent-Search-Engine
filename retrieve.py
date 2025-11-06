@@ -1,8 +1,8 @@
-from typing import List
+from typing import List, Tuple
 from embedding import embed_chunk
 
 # retrieve from chromadb
-def chromadb_retrieve(db, query: str, langauge: str = 'Chinese', top_k: int = 3) -> List[str]:
+def chromadb_retrieve(db, query: str, langauge: str = 'Chinese', top_k: int = 3) -> List[Tuple[str, str]]:
     """
     在指定的 ChromaDB 集合中检索与 query 最相关的 top_k 文档
     :param db: chromadb.Collection 对象
@@ -14,9 +14,12 @@ def chromadb_retrieve(db, query: str, langauge: str = 'Chinese', top_k: int = 3)
     # 使用chromadb_collection集合来检索query
     results = db.query(
         query_embeddings=[query_embedding],
-        n_results=top_k
+        n_results=top_k,
+        include=["documents", "distances"]
     )
-    return results['documents'][0]  # [0]: 取第一个查询的结果（即唯一的query）
+    documents = results["documents"][0]
+    distances = results["distances"][0]
+    return list(zip(documents, distances))  # [0]: 取第一个查询的结果（即唯一的query）
 
 if __name__ == '__main__':
 
