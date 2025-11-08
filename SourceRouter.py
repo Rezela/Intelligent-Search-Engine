@@ -1,4 +1,3 @@
-
 ROUTING_RULES ={
     "weather": {
         "keywords": ["天气", "气温", "下雨", "温度", "湿度", "风"],
