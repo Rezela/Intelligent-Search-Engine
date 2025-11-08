@@ -5,9 +5,11 @@ from typing import Tuple
 import time
 import logging
 from logs import init_logger, new_query_id
+from SourceRouter import SourceRouter
+from SourceAPI import HANDLERS
 
-# Prompt 构造
-def make_prompt(query: str, context: str) -> Tuple[str, str]:
+# RAG 的 Prompt 构造 （仅使用本地上下文，无信息则不输出）
+def make_rag_prompt(query: str, context: str) -> Tuple[str, str]:
     system = (
         "You are a careful assistant. Use only the provided context to answer. "
         "If the answer is not in context, say you don't know."
@@ -19,14 +21,41 @@ def make_prompt(query: str, context: str) -> Tuple[str, str]:
     )
     return system, user
 
-
+# 调用 API 的 prompt 构造
+def make_api_prompt(query: str, context: str) -> Tuple[str, str]:
+    system = "You are a helpful assistant." \
+             "Use the provided API result as the authoritative source to answer the question."
+    user = f"User asked:\n{query}\n\nAPI result:\n{context}\n\nAnswer clearly and concisely."
+    return system, user
 
 class FullRAG:
     def __init__(self, db):
         self.db = db
         self.llm_client = HKGAIClient()
+        self.router = SourceRouter()
 
     def query(self, user_query: str, language: str = "Chinese", top_k: int = 5):
+        # Step 0: 智能源选择
+        source = self.router.route(user_query)
+
+        if source in HANDLERS:
+            context = HANDLERS[source].handle(user_query)
+            system_prompt, user_prompt = make_api_prompt(user_query, context)
+            result = self.llm_client.chat(system_prompt, user_prompt)
+
+            return {
+                "query": user_query,
+                "source": source,
+                "context": context,
+                "answer": result["content"],
+                "timing": result.get("timing", {})
+            }
+
+        # 默认走 RAG
+        return self._rag_pipeline(user_query, language, top_k)
+
+
+    def _rag_pipeline(self, user_query: str, language: str = "Chinese", top_k: int = 5):
         # Step 1: 检索
         t0 = time.time()
         retrieved_results = chromadb_retrieve(self.db, user_query, language, top_k=top_k)
@@ -40,7 +69,7 @@ class FullRAG:
         context = "\n\n".join([chunk for chunk, score in reranked_results])
 
         # Step 4: 调用 LLM
-        system_prompt, user_prompt = make_prompt(user_query, context)
+        system_prompt, user_prompt = make_rag_prompt(user_query, context)
         result = self.llm_client.chat(system_prompt, user_prompt, max_tokens=256, temperature=0.0)
         t3 = time.time()
 
@@ -59,6 +88,7 @@ class FullRAG:
 
         return {
             "query": user_query,
+            "source": "rag",
             "retrieved": retrieved_results,  # [(doc, score)]
             "reranked": reranked_results,
             "answer": result["content"],
@@ -87,19 +117,36 @@ if __name__ == "__main__":
 
     # 假设已经 save_embeddings(db, chunks, embeddings)
     rag = FullRAG(db)
-    query = "哆啦A梦使用的3个秘密道具分别是什么？"
-    result = rag.query(query, language="Chinese")
 
+    # 测试不同 query
+    queries = [
+        "哆啦A梦使用的3个秘密道具分别是什么？",   # RAG
+        "北京今天的天气情况",                   # Weather API
+        "科大到中环要多久",                      # Traffic API
+        "中国石化今天的收盘价是多少"             # Finance API
+    ]
 
-    print("=== Retrieved ===")
-    for i, (chunk, score) in enumerate(result["retrieved"], 1):
-        print(f"[{i}] (retrieval_score={score:.3f}) {chunk}")
+    for q in queries:
+        print("\n=== Query ===")
+        print(q)
+        result = rag.query(q, language="Chinese")
 
-    print("\n=== Reranked ===")
-    for i, (chunk, score) in enumerate(result["reranked"], 1):
-        print(f"[{i}] (rerank_score={score:.3f}) {chunk}")
+        if result["source"] in ["weather_api", "traffic_api", "finance_api"]:
+            print("=== API Result ===")
+            print(result["context"])
+            print("\n=== Answer ===")
+            print(result["answer"])
+        else:
+            print("=== Retrieved ===")
+            for i, (chunk, score) in enumerate(result["retrieved"], 1):
+                print(f"[{i}] (retrieval_score={score:.3f}) {chunk}")
 
-    print("\n=== Answer ===")
-    print(result["answer"])
-    print("\n=== Timing ===")
-    print(result["timing"])
+            print("\n=== Reranked ===")
+            for i, (chunk, score) in enumerate(result["reranked"], 1):
+                print(f"[{i}] (rerank_score={score:.3f}) {chunk}")
+
+            print("\n=== Answer ===")
+            print(result["answer"])
+
+        print("\n=== Timing ===")
+        print(result["timing"])
