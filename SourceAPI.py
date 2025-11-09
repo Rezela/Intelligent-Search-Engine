@@ -13,7 +13,7 @@ class BaseAPIHandler:
 # 天气 API
 class WeatherAPIHandler(BaseAPIHandler):
     def __init__(self):
-        self.api_key = "8a235aa55a5ca1fab61e5e37d5fdf605"
+        self.api_key = "can't expose to public, pls set your API key"
 
     def extract_city(self, query: str) -> str:
         """
@@ -64,7 +64,7 @@ class WeatherAPIHandler(BaseAPIHandler):
 # 交通 API
 class TrafficAPIHandler(BaseAPIHandler):
     def __init__(self):
-        self.client = googlemaps.Client(key="AIzaSyDfYrKGJ5ina9R0A4xYjNeJY-8iqkrIhF4")
+        self.client = googlemaps.Client(key="can't expose to public, pls set your API key")
 
     def parse_locations(self, query: str):
         """
