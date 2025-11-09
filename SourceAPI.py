@@ -116,31 +116,55 @@ class TrafficAPIHandler(BaseAPIHandler):
 class FinanceAPIHandler(BaseAPIHandler):
     def handle(self, query: str) -> str:
         try:
-            search = yf.Search(query, max_results=3, enable_fuzzy_query=True)
-            """
-            Search 类的源码里，返回的数据被解析到：
-            self._quotes → 股票搜索结果（包含 symbol、shortname 等）
-            self._news → 新闻结果
-            self._lists → 列表结果
-            self._research → 研究报告
-            self._nav → 导航数据
-            """
-            if not search.quotes:
-                return f"未找到与 '{query}' 相关的股票代码"
+            # Step 1: 尝试从别名映射表中匹配
+            ticker_symbol = None
+            for name, symbol in TICKER_MAP.items():
+                if name in query:
+                    ticker_symbol = symbol
+                    matched_name = name
+                    break
 
-            # 取第一个匹配结果
-            symbol = search.quotes[0]["symbol"]
-            name = search.quotes[0].get("shortname", symbol)
+            # Step 2: 如果没有匹配到，再使用 yfinance.Search
+            if not ticker_symbol:
+                search = yf.Search(query, max_results=3, enable_fuzzy_query=True)
+                """
+                Search 类的源码里，返回的数据被解析到：
+                self._quotes → 股票搜索结果（包含 symbol、shortname 等）
+                self._news → 新闻结果
+                self._lists → 列表结果
+                self._research → 研究报告
+                self._nav → 导航数据
+                """
+                if not search.quotes:
+                    return f"未找到与 '{query}' 相关的股票代码"
 
-            ticker = yf.Ticker(symbol)
+                ticker_symbol = search.quotes[0]["symbol"]
+                matched_name = search.quotes[0].get("shortname", ticker_symbol)
+
+            # Step 3: 获取收盘价
+            ticker = yf.Ticker(ticker_symbol)
             hist = ticker.history(period="1d")
             if hist.empty:
-                return f"未能获取 {name} ({symbol}) 的最新数据"
+                return f"未能获取 {matched_name} ({ticker_symbol}) 的最新数据"
 
             price = hist["Close"].iloc[-1]
-            return f"{name} ({symbol}) 最新收盘价：{price:.2f}"
+            return f"{matched_name} ({ticker_symbol}) 最新收盘价：{price:.2f}"
+
         except Exception as e:
             return f"金融数据获取失败：{str(e)}"
+
+# 股票别名映射表（可扩展）
+TICKER_MAP = {
+    "中国石化": "600028.SS",
+    "中石化": "600028.SS",
+    "Sinopec": "600028.SS",
+    "中国石油": "601857.SS",
+    "中石油": "601857.SS",
+    "腾讯": "0700.HK",
+    "阿里巴巴": "BABA",
+    "比亚迪": "002594.SZ",
+    "茅台": "600519.SS"
+}
 
 # Router 维护映射表
 HANDLERS = {
