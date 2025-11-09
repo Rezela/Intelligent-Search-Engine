@@ -36,19 +36,31 @@ class FullRAG:
 
     def query(self, user_query: str, language: str = "Chinese", top_k: int = 5):
         # Step 0: 智能源选择
+        t0 = time.time()
         source = self.router.route(user_query)
 
         if source in HANDLERS:
             context = HANDLERS[source].handle(user_query)
             system_prompt, user_prompt = make_api_prompt(user_query, context)
             result = self.llm_client.chat(system_prompt, user_prompt)
+            t1 = time.time()
+            api_source_time = t1 - t0
+
+            logging.info("==== New Query ====")
+            logging.info(f"Query: {user_query}")
+            logging.info(f"Source: {source}")
+            logging.info(f"API Context: {context}")
+            logging.info(f"LLM Answer: {result['content']}")
+            logging.info(f"Times [api={api_source_time:.3f}s]")
 
             return {
                 "query": user_query,
                 "source": source,
                 "context": context,
                 "answer": result["content"],
-                "timing": result.get("timing", {})
+                "timing": {
+                    "api": api_source_time
+                }
             }
 
         # 默认走 RAG
@@ -149,4 +161,5 @@ if __name__ == "__main__":
             print(result["answer"])
 
         print("\n=== Timing ===")
-        print(result["timing"])
+        for k, v in result["timing"].items():
+            print(f"{k}: {v:.3f}s")
