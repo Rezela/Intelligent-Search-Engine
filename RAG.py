@@ -139,17 +139,17 @@ if __name__ == "__main__":
     ]
 
     for q in queries:
-        print("\n=== Query ===")
+        print("\n\n=== Query ===")
         print(q)
         result = rag.query(q, language="Chinese")
 
         if result["source"] in ["weather_api", "traffic_api", "finance_api"]:
-            print("=== API Result ===")
+            print("\n=== API Result ===")
             print(result["context"])
             print("\n=== Answer ===")
             print(result["answer"])
         else:
-            print("=== Retrieved ===")
+            print("\n=== Retrieved ===")
             for i, (chunk, score) in enumerate(result["retrieved"], 1):
                 print(f"[{i}] (retrieval_score={score:.3f}) {chunk}")
 
