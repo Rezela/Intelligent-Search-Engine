@@ -1,10 +1,15 @@
 import requests
 import json
 
+from dotenv import load_dotenv
+
+# 加载 .env 文件
+load_dotenv()
+
 class HKGAIClient:
     def __init__(self):
         self.base_url = "https://oneapi.hkgai.net/v1"
-        self.api_key = "sk-iqA1pjC48rpFXdkU7cCaE3BfBc9145B4BfCbEe0912126646"
+        self.api_key = "HKGAI_API_KEY"
         self.model_id = "HKGAI-V1"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",

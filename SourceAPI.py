@@ -3,6 +3,10 @@ import googlemaps
 import re
 import yfinance as yf
 
+from dotenv import load_dotenv
+
+# 加载 .env 文件
+load_dotenv()
 
 # 定义统一接口
 class BaseAPIHandler:
@@ -13,7 +17,7 @@ class BaseAPIHandler:
 # 天气 API
 class WeatherAPIHandler(BaseAPIHandler):
     def __init__(self):
-        self.api_key = "can't expose to public, pls set your API key"
+        self.api_key = "WEATHER_API_KEY"
 
     def extract_city(self, query: str) -> str:
         """
@@ -64,8 +68,7 @@ class WeatherAPIHandler(BaseAPIHandler):
 # 交通 API
 class TrafficAPIHandler(BaseAPIHandler):
     def __init__(self):
-        self.client = googlemaps.Client(key="can't expose to public, pls set your API key")
-
+        self.client = googlemaps.Client(key="TRAFFIC_API_KEY")
     def parse_locations(self, query: str):
         """
         使用正则表达式解析 query 中的起点和终点
