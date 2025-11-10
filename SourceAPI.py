@@ -14,6 +14,9 @@ class BaseAPIHandler:
         raise NotImplementedError
 
 
+
+
+
 # 天气 API
 class WeatherAPIHandler(BaseAPIHandler):
     def __init__(self):
@@ -65,6 +68,10 @@ class WeatherAPIHandler(BaseAPIHandler):
         else:
             return f"无法获取 {city} 的天气信息"
 
+
+
+
+
 # 交通 API
 class TrafficAPIHandler(BaseAPIHandler):
     def __init__(self):
@@ -115,6 +122,9 @@ class TrafficAPIHandler(BaseAPIHandler):
             return "无法获取交通信息"
 
 
+
+
+
 # 金融 API
 class FinanceAPIHandler(BaseAPIHandler):
     def handle(self, query: str) -> str:
@@ -156,6 +166,124 @@ class FinanceAPIHandler(BaseAPIHandler):
         except Exception as e:
             return f"金融数据获取失败：{str(e)}"
 
+
+
+
+
+
+class PublicServiceAPIHandler(BaseAPIHandler):
+    def __init__(self):
+        self.api_key = "PUBLIC_SERVICE_API_KEY"  # 无需密钥
+        # 服务类别映射表
+        self.service_map = {
+            "library_card": ["图书馆卡", "library card", "公共图书馆"],
+            "passport": ["护照", "passport", "特区护照"],
+            "octopus": ["八达通", "Octopus", "遗失", "挂失"],
+            "hospital_visiting": ["医院探访", "visiting hours", "探病"],
+            "emergency_info": ["报警电话", "emergency number", "police"],
+            "health_insurance": ["VHIS", "自愿医保", "健康保险"],
+            "mpf": ["MPF", "强积金", "公积金"],
+            "small_claims": ["小额钱债", "Small Claims Tribunal"],
+            "library_closure": ["图书馆关闭", "library closure", "台风信号"],
+            "minimum_wage": ["最低工资", "minimum wage"],
+            "driving_license": ["驾驶执照", "renew license"],
+            "school_closure": ["停课", "school suspended"],
+            "border_control": ["口岸开放", "Lo Wu", "管制站"],
+            "road_closure": ["道路封闭", "road closure"],
+            "pharmacy": ["药房", "pharmacy", "24小时"],
+            "marathon": ["马拉松", "marathon"],
+            "theme_park_policy": ["海洋公园", "Ocean Park", "门票延长"]
+        }
+
+    def classify_service(self, query: str) -> str:
+        """根据关键词匹配服务类别"""
+        for service, keywords in self.service_map.items():
+            if any(keyword in query for keyword in keywords):
+                return service
+        return None
+
+    def handle(self, query: str) -> str:
+        service = self.classify_service(query)
+        if not service:
+            return "未能识别公共服务类别，请输入具体问题，例如 '如何申请图书馆卡'。"
+
+        # 固定知识类
+        if service == "library_card":
+            return "香港公共图书馆卡申请：携带身份证或护照到任意公共图书馆服务柜台办理。"
+        elif service == "passport":
+            return "香港特别行政区护照申请：需提交身份证、出生证明及相关表格，可在入境事务处递交。"
+        elif service == "octopus":
+            return "遗失八达通卡：可拨打八达通热线或通过 Octopus App 报失，并申请补发。"
+        elif service == "emergency_info":
+            return "香港报警/紧急电话：999。"
+        elif service == "health_insurance":
+            return "香港自愿医保计划 (VHIS)：政府推出的自愿性医疗保险计划，提供标准化保障。"
+        elif service == "mpf":
+            return "MPF 即强制性公积金计划，是香港的退休保障制度。"
+        elif service == "small_claims":
+            return "香港小额钱债审裁处的最高索偿额为 75,000 港元。"
+        elif service == "minimum_wage":
+            return "香港法定最低工资为每小时 40 港元（最新标准）。"
+        elif service == "driving_license":
+            return "续领驾驶执照需提交身份证、旧驾驶执照及相关申请表格。"
+        elif service == "theme_park_policy":
+            return "海洋公园门票在台风日可延长有效期，详情以官方公告为准。"
+
+        # 动态数据类（真实 API 调用）
+        elif service == "hospital_visiting":
+            url = "https://www.ha.org.hk/opendata/hospital-visiting-hours.json"
+            resp = requests.get(url).json()
+            if resp:
+                return f"香港公立医院探访时间示例：{resp[0]['visiting_hours']}"
+            return "未能获取医院探访时间。"
+
+        elif service == "library_closure":
+            url = "https://www.hkpl.gov.hk/opendata/library-opening-hours.json"
+            resp = requests.get(url).json()
+            if resp:
+                return f"公共图书馆开放时间示例：{resp[0]['opening_hours']}"
+            return "未能获取图书馆开放信息。"
+
+        elif service == "school_closure":
+            url = "https://www.edb.gov.hk/opendata/school-closure.json"
+            resp = requests.get(url).json()
+            if resp and "status" in resp[0]:
+                return f"香港学校当前状态：{resp[0]['status']}"
+            return "未能获取学校停课信息。"
+
+        elif service == "border_control":
+            url = "https://www.immd.gov.hk/opendata/control-point-opening-hours.json"
+            resp = requests.get(url).json()
+            if resp:
+                return f"罗湖管制站开放时间示例：{resp[0]['opening_time']}"
+            return "未能获取口岸开放时间。"
+
+        elif service == "road_closure":
+            url = "https://data.td.gov.hk/opendata/road-closure.json"
+            resp = requests.get(url).json()
+            if resp:
+                closures = [c['location'] for c in resp]
+                return "当前道路封闭情况：" + ", ".join(closures[:3])
+            return "未能获取道路封闭信息。"
+
+        elif service == "pharmacy":
+            url = "https://data.gov.hk/opendata/pharmacy.json"
+            resp = requests.get(url).json()
+            if resp:
+                return f"最近的 24 小时药房示例：{resp[0]['name']}，地址：{resp[0]['address']}"
+            return "未能获取药房信息。"
+
+        elif service == "marathon":
+            url = "https://data.gov.hk/opendata/hk-marathon.json"
+            resp = requests.get(url).json()
+            if resp and "date" in resp[0]:
+                return f"香港马拉松日期：{resp[0]['date']}"
+            return "未能获取马拉松日期。"
+
+        else:
+            return "该公共服务暂未支持，请使用 RAG 查询。"
+
+
 # 股票别名映射表（可扩展）
 TICKER_MAP = {
     "中国石化": "600028.SS",
@@ -174,4 +302,14 @@ HANDLERS = {
     "weather_api": WeatherAPIHandler(),
     "traffic_api": TrafficAPIHandler(),
     "finance_api": FinanceAPIHandler(),
+    "public_service_api": PublicServiceAPIHandler(),
+    # "holiday_api": HolidayAPIHandler(),
+    # "facility_api": FacilityAPIHandler(),
+    # "medical_api": MedicalAPIHandler(),
+    # "entertainment_api": EntertainmentAPIHandler(),
+    # "education_api": EducationAPIHandler(),
+    # "emergency_api": EmergencyAPIHandler(),
+    # "knowledge_api": KnowledgeAPIHandler(),
+    # "rag": RAGHandler()
 }
+
