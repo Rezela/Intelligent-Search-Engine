@@ -4,7 +4,7 @@ import re
 import yfinance as yf
 
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 
 # 加载 .env 文件
@@ -21,54 +21,188 @@ class BaseAPIHandler:
 
 # 天气 API
 class WeatherAPIHandler(BaseAPIHandler):
+    GEO_URL = "https://api.openweathermap.org/geo/1.0/direct"
+    CURRENT_URL = "https://api.openweathermap.org/data/2.5/weather"
+    FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
+    AIR_URL = "https://api.openweathermap.org/data/2.5/air_pollution"
+    FALLBACK_CITIES = ["北京", "上海", "广州", "深圳", "香港", "巴黎", "伦敦", "纽约"]
+
     def __init__(self):
         self.api_key = os.getenv("WEATHER_API_KEY")
+        self.session = requests.Session()
+        self.lang = os.getenv("WEATHER_LANG", "zh_cn")
+        self.units = os.getenv("WEATHER_UNITS", "metric")
 
-    def extract_city(self, query: str) -> str:
-        """
-        简单地名提取：用正则匹配常见城市名
-        可以扩展为更复杂的 NLP 模型或词典映射
-        """
-        # 常见城市列表，可扩展
-        cities = ["北京", "上海", "广州", "深圳", "香港", "巴黎", "伦敦", "纽约"]
-        for city in cities:
+    def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        if not self.api_key:
+            return {"error": "未配置 WEATHER_API_KEY"}
+
+        city = self._resolve_city(query, metadata)
+        if not city:
+            return {"error": "未能识别城市，请输入类似“北京天气”的查询。"}
+
+        location = self._geocode_city(city)
+        if not location:
+            return {"error": f"无法解析 {city} 的地理位置"}
+
+        lat, lon = location["lat"], location["lon"]
+        current_raw = self._fetch_current_weather(lat, lon)
+        if not current_raw or "main" not in current_raw:
+            return {"error": f"无法获取 {location['name']} 的天气信息"}
+
+        forecast_raw = self._fetch_forecast(lat, lon)
+        air_raw = self._fetch_air_quality(lat, lon)
+
+        current_detail = self._extract_current(current_raw)
+        forecast_detail = self._extract_forecast(forecast_raw)
+        air_detail = self._extract_air_quality(air_raw)
+
+        summary = self._build_summary(location["name"], current_detail, forecast_detail, air_detail)
+
+        return {
+            "summary": summary,
+            "location": {
+                "name": location["name"],
+                "country": location.get("country"),
+                "lat": lat,
+                "lon": lon,
+            },
+            "current": current_detail,
+            "forecast": forecast_detail,
+            "air_quality": air_detail,
+            "raw": {
+                "current": current_raw,
+                "forecast": forecast_raw,
+                "air_quality": air_raw,
+            },
+        }
+
+    def _request(self, url: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        params["appid"] = self.api_key
+        try:
+            resp = self.session.get(url, params=params, timeout=10)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException:
+            return None
+
+    def _resolve_city(self, query: str, metadata: Optional[Dict[str, Any]]) -> Optional[str]:
+        if metadata:
+            entities = metadata.get("entities") or {}
+            entity_city = entities.get("location")
+            if entity_city:
+                return entity_city.strip()
+
+        for city in self.FALLBACK_CITIES:
             if city in query:
                 return city
         return None
 
-    def geocode_city(self, city: str):
-        """
-        调用 OpenWeather Geocoding API，把城市名转成经纬度
-        """
-        url = f"http://api.openweathermap.org/geo/1.0/direct?q={city}&limit=1&appid={self.api_key}"
-        resp = requests.get(url).json()
-        if resp:
-            lat, lon = resp[0]["lat"], resp[0]["lon"]
-            return lat, lon
-        return None, None
+    def _geocode_city(self, city: str) -> Optional[Dict[str, Any]]:
+        params = {"q": city, "limit": 1}
+        data = self._request(self.GEO_URL, params)
+        if data:
+            record = data[0]
+            return {
+                "name": record.get("name", city),
+                "country": record.get("country"),
+                "lat": record.get("lat"),
+                "lon": record.get("lon"),
+            }
+        return None
 
-    def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> str:
-        # Step 1: 提取城市
-        city = self.extract_city(query)
-        if not city:
-            return "未能识别城市，请输入类似 '北京天气' 的查询。"
+    def _fetch_current_weather(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
+        params = {"lat": lat, "lon": lon, "units": self.units, "lang": self.lang}
+        return self._request(self.CURRENT_URL, params)
 
-        # Step 2: 获取经纬度
-        lat, lon = self.geocode_city(city)
-        if not lat or not lon:
-            return f"无法解析 {city} 的地理位置"
+    def _fetch_forecast(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
+        params = {"lat": lat, "lon": lon, "units": self.units, "lang": self.lang, "cnt": 8}
+        return self._request(self.FORECAST_URL, params)
 
-        # Step 3: 调用天气 API
-        url = f"http://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={self.api_key}&lang=zh_cn&units=metric"
-        response = requests.get(url)
-        data = response.json()
+    def _fetch_air_quality(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
+        params = {"lat": lat, "lon": lon}
+        return self._request(self.AIR_URL, params)
 
-        if response.status_code == 200 and "main" in data:
-            temp = data["main"]["temp"]
-            description = data["weather"][0]["description"]
-            return f"{city} 当前气温 {temp} ℃，天气情况为 {description}"
-        else:
-            return f"无法获取 {city} 的天气信息"
+    def _extract_current(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        weather = (payload.get("weather") or [{}])[0]
+        wind = payload.get("wind") or {}
+        main = payload.get("main") or {}
+        return {
+            "description": weather.get("description"),
+            "temperature": main.get("temp"),
+            "feels_like": main.get("feels_like"),
+            "humidity": main.get("humidity"),
+            "pressure": main.get("pressure"),
+            "wind_speed": wind.get("speed"),
+            "wind_direction": wind.get("deg"),
+            "visibility": payload.get("visibility"),
+            "sunrise": (payload.get("sys") or {}).get("sunrise"),
+            "sunset": (payload.get("sys") or {}).get("sunset"),
+            "timestamp": payload.get("dt"),
+        }
+
+    def _extract_forecast(self, payload: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not payload:
+            return []
+        entries = payload.get("list") or []
+        highlights = []
+        for item in entries[:4]:
+            weather = (item.get("weather") or [{}])[0]
+            main = item.get("main") or {}
+            highlights.append(
+                {
+                    "time": item.get("dt"),
+                    "temperature": main.get("temp"),
+                    "description": weather.get("description"),
+                    "humidity": main.get("humidity"),
+                    "wind_speed": (item.get("wind") or {}).get("speed"),
+                }
+            )
+        return highlights
+
+    def _extract_air_quality(self, payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not payload:
+            return None
+        records = payload.get("list") or []
+        if not records:
+            return None
+        main = records[0].get("main") or {}
+        components = records[0].get("components") or {}
+        return {
+            "aqi": main.get("aqi"),
+            "components": components,
+            "timestamp": records[0].get("dt"),
+        }
+
+    def _build_summary(
+        self,
+        city: str,
+        current: Dict[str, Any],
+        forecast: List[Dict[str, Any]],
+        air_quality: Optional[Dict[str, Any]],
+    ) -> str:
+        desc = current.get("description") or "天气数据"
+        temp = current.get("temperature")
+        humidity = current.get("humidity")
+        wind = current.get("wind_speed")
+        pieces = [f"{city}当前{desc}"]
+        if temp is not None:
+            pieces.append(f"气温 {temp}°C")
+        if humidity is not None:
+            pieces.append(f"湿度 {humidity}%")
+        if wind is not None:
+            pieces.append(f"风速 {wind} m/s")
+        if forecast:
+            next_desc = forecast[0].get("description")
+            next_temp = forecast[0].get("temperature")
+            if next_desc or next_temp is not None:
+                pieces.append(
+                    f"未来几小时预计 {next_desc or '天气变化'}"
+                    + (f"，温度约 {next_temp}°C" if next_temp is not None else "")
+                )
+        if air_quality and air_quality.get("aqi"):
+            pieces.append(f"空气质量指数 AQI={air_quality['aqi']}")
+        return "，".join(pieces)
 
 
 
