@@ -212,50 +212,84 @@ class WeatherAPIHandler(BaseAPIHandler):
 class TrafficAPIHandler(BaseAPIHandler):
     def __init__(self):
         self.client = googlemaps.Client(key=os.getenv("TRAFFIC_API_KEY"))
-    def parse_locations(self, query: str):
-        """
-        使用正则表达式解析 query 中的起点和终点
-        支持格式：
-        - 从A到B
-        - A到B
-        - A去B
-        - A到B要多久
-        """
-        patterns = [
-            r"从(?P<origin>.+?)到(?P<destination>.+)",  # 从A到B
-            r"(?P<origin>.+?)到(?P<destination>.+)",  # A到B
-            r"(?P<origin>.+?)去(?P<destination>.+)"  # A去B
-        ]
 
+    def parse_locations(self, query: str):
+        patterns = [
+            r"从(?P<origin>.+?)到(?P<destination>.+)",
+            r"由(?P<origin>.+?)到(?P<destination>.+)",
+            r"由(?P<origin>.+?)前往(?P<destination>.+)",
+            r"(?P<origin>.+?)到(?P<destination>.+)",
+            r"(?P<origin>.+?)去(?P<destination>.+)",
+            r"route from (?P<origin>.+?) to (?P<destination>.+)",
+            r"from (?P<origin>.+?) to (?P<destination>.+)",
+        ]
+        lowered = query.lower()
         for pattern in patterns:
-            match = re.search(pattern, query)
+            match = re.search(pattern, query, flags=re.IGNORECASE)
             if match:
-                origin = match.group("origin").strip()
-                destination = match.group("destination").strip()
+                origin = match.group("origin").strip(" 。?？.")
+                destination = match.group("destination").strip(" 。?？.")
                 return origin, destination
+
+        # handle "route from A to B" after removing leading text
+        if "route" in lowered and "to" in lowered:
+            try:
+                idx = lowered.index("route")
+                route_part = query[idx:]
+                match = re.search(r"route .*? from (?P<origin>.+?) to (?P<destination>.+)", route_part, flags=re.IGNORECASE)
+                if match:
+                    return match.group("origin").strip(), match.group("destination").strip()
+            except ValueError:
+                pass
 
         return None, None
 
-    def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+    def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         origin, destination = self.parse_locations(query)
 
         if not origin or not destination:
-            return "未能识别起点和终点，请输入类似 '从香港科技大学到中环' 的格式。"
+            return {"error": "未能识别起点和终点，请使用“从A到B”或“route from A to B”的格式。"}
 
-        directions = self.client.directions(
-            origin=origin,
-            destination=destination,
-            mode="driving",
-            departure_time="now"
-        )
+        try:
+            directions = self.client.directions(
+                origin=origin,
+                destination=destination,
+                mode="driving",
+                departure_time="now"
+            )
+        except Exception as exc:
+            return {"error": f"交通信息请求失败：{exc}"}
 
-        if directions:
-            leg = directions[0]["legs"][0]
-            duration = leg["duration"]["text"]
-            distance = leg["distance"]["text"]
-            return f"从 {origin} 到 {destination} 预计车程 {duration}，距离 {distance}"
-        else:
-            return "无法获取交通信息"
+        if not directions:
+            return {"error": "无法获取交通信息"}
+
+        leg = directions[0]["legs"][0]
+        duration = leg["duration"]["text"]
+        distance = leg["distance"]["text"]
+        steps = [
+            {
+                "instruction": self._strip_html(step.get("html_instructions", "")),
+                "distance": step.get("distance", {}).get("text"),
+                "duration": step.get("duration", {}).get("text"),
+            }
+            for step in leg.get("steps", [])
+        ]
+
+        summary = f"从 {leg['start_address']} 到 {leg['end_address']} 预计行驶 {duration}（{distance}）"
+        return {
+            "summary": summary,
+            "mode": "driving",
+            "distance": distance,
+            "duration": duration,
+            "start_address": leg.get("start_address"),
+            "end_address": leg.get("end_address"),
+            "steps": steps,
+            "raw": directions,
+        }
+
+    @staticmethod
+    def _strip_html(text: str) -> str:
+        return re.sub(r"<.*?>", "", text)
 
 
 

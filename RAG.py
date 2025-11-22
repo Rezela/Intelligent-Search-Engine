@@ -32,6 +32,12 @@ def _format_api_context(context):
         if summary:
             lines.append(summary)
 
+        if context.get("mode"):
+            lines.append(f"出行方式: {context['mode']}")
+
+        if "distance" in context and "duration" in context:
+            lines.append(f"路程 {context['distance']} / 预计用时 {context['duration']}")
+
         location = context.get("location")
         if location:
             loc_desc = f"{location.get('name')} ({location.get('lat')}, {location.get('lon')})"
@@ -55,6 +61,13 @@ def _format_api_context(context):
         air = context.get("air_quality") or {}
         if air and air.get("aqi"):
             lines.append(f"空气质量指数 AQI={air['aqi']}")
+
+        steps = context.get("steps") or []
+        if steps:
+            preview = "; ".join(
+                f"{step.get('instruction')} ({step.get('distance')})" for step in steps[:3]
+            )
+            lines.append(f"路线提示: {preview}")
 
         return "\n".join(lines) or json.dumps(context, ensure_ascii=False)
     return str(context)
