@@ -4,6 +4,7 @@ import re
 import yfinance as yf
 
 import os
+from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 
 # 加载 .env 文件
@@ -11,7 +12,7 @@ load_dotenv()
 
 # 定义统一接口
 class BaseAPIHandler:
-    def handle(self, query: str) -> str:
+    def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> str:
         raise NotImplementedError
 
 
@@ -46,7 +47,7 @@ class WeatherAPIHandler(BaseAPIHandler):
             return lat, lon
         return None, None
 
-    def handle(self, query: str) -> str:
+    def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> str:
         # Step 1: 提取城市
         city = self.extract_city(query)
         if not city:
@@ -101,7 +102,7 @@ class TrafficAPIHandler(BaseAPIHandler):
 
         return None, None
 
-    def handle(self, query: str) -> str:
+    def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> str:
         origin, destination = self.parse_locations(query)
 
         if not origin or not destination:
@@ -128,7 +129,7 @@ class TrafficAPIHandler(BaseAPIHandler):
 
 # 金融 API
 class FinanceAPIHandler(BaseAPIHandler):
-    def handle(self, query: str) -> str:
+    def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> str:
         try:
             # Step 1: 尝试从别名映射表中匹配
             ticker_symbol = None
@@ -177,7 +178,7 @@ class FinanceAPIHandler(BaseAPIHandler):
 # Google Search API
 class GoogleSearchAPIHandler(BaseAPIHandler):
     ENDPOINT = "https://customsearch.googleapis.com/customsearch/v1"
-    RECENT_KEYWORDS = ["最新", "今天", "今日", "近期", "最近", "news", "latest", "today"]
+    RECENT_KEYWORDS = ["最新", "今天", "今日", "近期", "最近", "news", "latest", "today", "recent"]
 
     def __init__(self):
         self.api_key = os.getenv("GOOGLESEARCH_API_KEY")
@@ -194,11 +195,12 @@ class GoogleSearchAPIHandler(BaseAPIHandler):
             lines.append(f"[{idx}] {title}\n链接: {link}\n摘要: {snippet}")
         return "\n\n".join(lines)
 
-    def handle(self, query: str) -> str:
+    def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> str:
         if not self.api_key or not self.engine_id:
             return "Google Search API 未配置，请设置 GOOGLESEARCH_API_KEY 及 GOOGLESEARCH_ENGINE_ID。"
 
-        params = self._build_params(query)
+        time_scope = self._extract_time_scope(metadata)
+        params = self._build_params(query, time_scope)
 
         try:
             response = self.session.get(self.ENDPOINT, params=params, timeout=10)
@@ -213,7 +215,16 @@ class GoogleSearchAPIHandler(BaseAPIHandler):
 
         return self._format_items(items)
 
-    def _build_params(self, query: str) -> dict:
+    def _extract_time_scope(self, metadata: Optional[Dict[str, Any]]) -> Optional[str]:
+        if not metadata:
+            return None
+        entities = metadata.get("entities") or {}
+        time_scope = entities.get("time_scope")
+        if isinstance(time_scope, str):
+            return time_scope.strip()
+        return None
+
+    def _build_params(self, query: str, time_scope: Optional[str]) -> dict:
         params = {
             "key": self.api_key,
             "cx": self.engine_id,
@@ -223,21 +234,53 @@ class GoogleSearchAPIHandler(BaseAPIHandler):
             "safe": "active",
         }
 
-        lowered = query.lower()
-        if any(keyword in query for keyword in self.RECENT_KEYWORDS):
-            params["sort"] = "date"
-            params["dateRestrict"] = "d7"
-        elif "本周" in query or "近一周" in query:
-            params["dateRestrict"] = "d7"
-            params["sort"] = "date"
-        elif "本月" in query or "近一月" in query:
-            params["dateRestrict"] = "m1"
-            params["sort"] = "date"
-        elif "今年" in query or "year" in lowered:
-            params["dateRestrict"] = "y1"
-            params["sort"] = "date"
+        normalized = (time_scope or "").lower()
+        if normalized:
+            date_params = self._params_from_time_scope(normalized)
+            if date_params:
+                params.update(date_params)
+        else:
+            lowered = query.lower()
+            if any(keyword in query for keyword in self.RECENT_KEYWORDS):
+                params["sort"] = "date"
+                params["dateRestrict"] = "d7"
+            elif "本周" in query or "近一周" in query:
+                params["dateRestrict"] = "d7"
+                params["sort"] = "date"
+            elif "本月" in query or "近一月" in query:
+                params["dateRestrict"] = "m1"
+                params["sort"] = "date"
+            elif "今年" in query or "year" in lowered:
+                params["dateRestrict"] = "y1"
+                params["sort"] = "date"
 
         return params
+
+    @staticmethod
+    def _params_from_time_scope(time_scope: str) -> Optional[Dict[str, str]]:
+        mapping = {
+            "today": "d1",
+            "this_week": "d7",
+            "past_week": "d7",
+            "week": "d7",
+            "recent": "d7",
+            "this_month": "m1",
+            "past_month": "m1",
+            "month": "m1",
+            "30d": "m1",
+            "this_year": "y1",
+            "past_year": "y1",
+            "year": "y1",
+        }
+
+        date_restrict = mapping.get(time_scope)
+        if not date_restrict and time_scope.startswith("custom:"):
+            return None
+
+        if date_restrict:
+            return {"dateRestrict": date_restrict, "sort": "date"}
+
+        return None
 
 
 # 股票别名映射表（可扩展）

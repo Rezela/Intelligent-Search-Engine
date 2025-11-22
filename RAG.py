@@ -52,7 +52,7 @@ class FullRAG:
                 logging.info("Intent Result (non-serializable): %s", intent_snapshot)
 
         if source in HANDLERS:
-            context = HANDLERS[source].handle(user_query)
+            context = HANDLERS[source].handle(user_query, metadata=intent_snapshot)
             system_prompt, user_prompt = make_api_prompt(user_query, context)
             result = self.llm_client.chat(system_prompt, user_prompt)
             t1 = time.time()

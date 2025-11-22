@@ -7,6 +7,12 @@ from typing import Any, Dict, List, Optional
 from api import HKGAIClient
 
 
+TIME_SCOPE_GUIDE = (
+    "time_scope 可选取值：today, this_week, this_month, this_year, recent, "
+    "custom:<描述>。例如“今天/今日/现在” → today，“最近/近一周/本周” → this_week，"
+    "“本月/近30天” → this_month，“今年/2025年” → this_year。若用户未限制时间，填 null。"
+)
+
 INTENT_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "name": "weather_api",
@@ -37,11 +43,12 @@ INTENT_DEFINITIONS: List[Dict[str, Any]] = [
     },
     {
         "name": "google_search_api",
-        "description": "需要查询互联网的最新资讯、长尾事实或未知实体背景，例如“最新新闻”“网上资料”。",
+        "description": "需要查询互联网的最新资讯、长尾事实或未知实体背景，例如“最新新闻”“网上资料”，可能包含时间范围需求。",
         "required_entities": ["search_query"],
         "example_queries": [
             "今天关于OpenAI的最新新闻",
-            "帮我找一下VisionPro的最新评测"
+            "帮我找一下VisionPro的最新评测",
+            "近一周的AI监管政策"
         ],
     },
     {
@@ -66,6 +73,7 @@ SCHEMA_DESCRIPTION = json.dumps(
             "ticker": "string or null，金融问题中的股票或资产代码/名称",
             "search_query": "string or null，Google 搜索需要使用的查询词",
             "site": "string or null，若用户限制特定网站，则给出域名",
+            "time_scope": "string or null，若用户指定时间范围，使用标准化值。例如 today/this_week/this_month/this_year/recent/custom:<描述>",
         },
     },
     ensure_ascii=False,
@@ -135,7 +143,8 @@ class LLMIntentClassifier:
             f"{instructions}\n\n"
             "请根据以下 JSON 模板返回：\n"
             f"{SCHEMA_DESCRIPTION}\n"
-            "必须保证是有效 JSON，字段齐全。"
+            "必须保证是有效 JSON，字段齐全。\n"
+            f"{TIME_SCOPE_GUIDE}"
         )
         if extra_instruction:
             prompt += f"\n\n额外要求：{extra_instruction}"
