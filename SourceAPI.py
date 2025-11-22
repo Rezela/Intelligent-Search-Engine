@@ -263,44 +263,219 @@ class TrafficAPIHandler(BaseAPIHandler):
 
 # 金融 API
 class FinanceAPIHandler(BaseAPIHandler):
-    def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+    HSI_KEYWORDS = ["恒生指数", "hsi", "hang seng"]
+    GOLD_KEYWORDS = ["gold", "gold price", "金价", "金價", "黃金", "黄金"]
+    GOLD_TICKER = "XAUHKD=X"
+    COMPARISON_TICKERS = ["NVDA", "AMD"]
+    CLP_KEYWORDS = ["clp", "中电", "電價", "電費", "tariff"]
+
+    def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        normalized = query.lower()
+        entities = (metadata or {}).get("entities") or {}
+        entity_ticker = entities.get("ticker")
+        entity_ticker_lower = entity_ticker.lower() if isinstance(entity_ticker, str) else ""
+
+        if any(word in normalized for word in self.CLP_KEYWORDS):
+            return {
+                "error": "CLP 電費屬於公共服務資訊，請改用本地知識庫或公共服務 API 查詢。"
+            }
+
         try:
-            # Step 1: 尝试从别名映射表中匹配
-            ticker_symbol = None
-            for name, symbol in TICKER_MAP.items():
-                if name in query:
-                    ticker_symbol = symbol
-                    matched_name = name
-                    break
+            if self._is_hsi_request(normalized):
+                return self._get_index_change("^HSI", "恒生指数")
+            if self._is_gold_request(normalized, entity_ticker_lower):
+                return self._get_gold_price()
+            if self._is_comparison_request(normalized):
+                return self._compare_stocks(self.COMPARISON_TICKERS)
+            if self._is_fx_request(normalized):
+                return self._get_fx_rate(normalized)
+            return self._get_single_ticker(query, metadata)
+        except Exception as exc:
+            return {"error": f"金融数据获取失败：{exc}"}
 
-            # Step 2: 如果没有匹配到，再使用 yfinance.Search
-            if not ticker_symbol:
-                search = yf.Search(query, max_results=3, enable_fuzzy_query=True)
-                """
-                Search 类的源码里，返回的数据被解析到：
-                self._quotes → 股票搜索结果（包含 symbol、shortname 等）
-                self._news → 新闻结果
-                self._lists → 列表结果
-                self._research → 研究报告
-                self._nav → 导航数据
-                """
-                if not search.quotes:
-                    return f"未找到与 '{query}' 相关的股票代码"
+    def _is_hsi_request(self, normalized: str) -> bool:
+        return any(word in normalized for word in self.HSI_KEYWORDS)
 
-                ticker_symbol = search.quotes[0]["symbol"]
-                matched_name = search.quotes[0].get("shortname", ticker_symbol)
+    def _is_gold_request(self, normalized: str, entity_ticker: str) -> bool:
+        if entity_ticker:
+            if any(word in entity_ticker for word in self.GOLD_KEYWORDS):
+                return True
+        return any(word in normalized for word in self.GOLD_KEYWORDS)
 
-            # Step 3: 获取收盘价
-            ticker = yf.Ticker(ticker_symbol)
-            hist = ticker.history(period="1d")
-            if hist.empty:
-                return f"未能获取 {matched_name} ({ticker_symbol}) 的最新数据"
+    def _is_comparison_request(self, normalized: str) -> bool:
+        return "nvda" in normalized and "amd" in normalized
 
-            price = hist["Close"].iloc[-1]
-            return f"{matched_name} ({ticker_symbol}) 最新收盘价：{price:.2f}"
+    def _is_fx_request(self, normalized: str) -> bool:
+        return ("hkd" in normalized and ("jpy" in normalized or "yen" in normalized)) or ("港币" in normalized and "日元" in normalized) or ("港幣" in normalized and "日元" in normalized)
 
-        except Exception as e:
-            return f"金融数据获取失败：{str(e)}"
+    def _get_index_change(self, symbol: str, name: str) -> Dict[str, Any]:
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(period="2d")
+        if hist.empty:
+            raise ValueError("指数数据为空")
+        close = hist["Close"]
+        current = float(close.iloc[-1])
+        prev = float(close.iloc[-2]) if len(close) > 1 else current
+        pct_change = ((current / prev) - 1) * 100 if prev else None
+        summary = f"{name}收于 {current:.2f} 点，日变动 {pct_change:.2f}%"
+        return {
+            "summary": summary,
+            "instrument": {"symbol": symbol, "name": name},
+            "quote": {
+                "last": current,
+                "previous_close": prev,
+                "pct_change": pct_change,
+                "currency": "HKD",
+                "timestamp": hist.index[-1].isoformat() if not hist.index.empty else None,
+            },
+            "raw": {"history": hist.to_dict()},
+        }
+
+    def _get_gold_price(self) -> Dict[str, Any]:
+        ticker = yf.Ticker(self.GOLD_TICKER)
+        hist = ticker.history(period="1d")
+        if hist.empty:
+            # fallback to XAU/USD + HKD/USD
+            price = self._fallback_gold_price_hkd()
+            summary = f"当前黄金价约 {price:.2f} HKD/盎司"
+            return {
+                "summary": summary,
+                "instrument": {"symbol": self.GOLD_TICKER, "name": "Gold (XAU/HKD)"},
+                "quote": {"last": price, "currency": "HKD", "timestamp": None},
+                "raw": {"fallback": True},
+            }
+        price = float(hist["Close"].iloc[-1])
+        summary = f"当前黄金价约 {price:.2f} HKD/盎司"
+        return {
+            "summary": summary,
+            "instrument": {"symbol": self.GOLD_TICKER, "name": "Gold (XAU/HKD)"},
+            "quote": {
+                "last": price,
+                "currency": "HKD",
+                "timestamp": hist.index[-1].isoformat() if not hist.index.empty else None,
+            },
+            "raw": {"history": hist.to_dict()},
+        }
+
+    def _fallback_gold_price_hkd(self) -> float:
+        gold_usd = yf.Ticker("XAUUSD=X").history(period="1d")
+        if gold_usd.empty:
+            gold_usd = yf.Ticker("GC=F").history(period="1d")
+            if gold_usd.empty:
+                raise ValueError("无法从美元获取黄金价格")
+        usd_hkd = yf.Ticker("USDHKD=X").history(period="1d")
+        if usd_hkd.empty:
+            raise ValueError("无法转换为港币价格")
+        price_usd = float(gold_usd["Close"].iloc[-1])
+        rate = float(usd_hkd["Close"].iloc[-1])
+        return price_usd * rate
+
+    def _compare_stocks(self, symbols: List[str]) -> Dict[str, Any]:
+        comparison = []
+        best_symbol = None
+        best_change = float("-inf")
+
+        for symbol in symbols:
+            ticker = yf.Ticker(symbol)
+            hist = ticker.history(period="5d")
+            if hist.empty or len(hist["Close"]) < 2:
+                continue
+            start = float(hist["Close"].iloc[0])
+            end = float(hist["Close"].iloc[-1])
+            pct_change = ((end / start) - 1) * 100
+            if pct_change > best_change:
+                best_change = pct_change
+                best_symbol = symbol
+            comparison.append(
+                {
+                    "symbol": symbol,
+                    "start": start,
+                    "end": end,
+                    "pct_change": pct_change,
+                    "timestamp_start": hist.index[0].isoformat(),
+                    "timestamp_end": hist.index[-1].isoformat(),
+                }
+            )
+
+        if not comparison:
+            raise ValueError("无法获取比较所需的股票数据")
+
+        summary = f"{best_symbol} 5 日表现最佳，涨跌幅 {best_change:.2f}%。"
+        return {
+            "summary": summary,
+            "comparison": comparison,
+            "raw": {"symbols": symbols},
+        }
+
+    def _get_fx_rate(self, normalized_query: str) -> Dict[str, Any]:
+        amount = self._extract_amount(normalized_query)
+        pair = "JPYHKD=X"
+        ticker = yf.Ticker(pair)
+        hist = ticker.history(period="1d")
+        if hist.empty:
+            raise ValueError("无法获取汇率")
+        rate = float(hist["Close"].iloc[-1])
+        converted = rate * amount if amount is not None else None
+        summary = f"当前 JPY/HKD 汇率 {rate:.4f}"
+        if converted is not None:
+            summary += f"，{amount:.0f} 日元约合 {converted:.2f} 港币"
+        return {
+            "summary": summary,
+            "fx": {
+                "pair": "JPY/HKD",
+                "rate": rate,
+                "inverse_rate": (1 / rate) if rate else None,
+                "amount_jpy": amount,
+                "amount_hkd": converted,
+                "timestamp": hist.index[-1].isoformat() if not hist.index.empty else None,
+            },
+            "raw": {"history": hist.to_dict()},
+        }
+
+    def _extract_amount(self, query: str) -> Optional[float]:
+        match = re.search(r"([\d,]+)\s*(日元|yen|jpy)", query, re.IGNORECASE)
+        if not match:
+            return None
+        value = match.group(1).replace(",", "")
+        try:
+            return float(value)
+        except ValueError:
+            return None
+
+    def _get_single_ticker(self, query: str, metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        ticker_symbol = None
+        matched_name = None
+
+        for name, symbol in TICKER_MAP.items():
+            if name in query:
+                ticker_symbol = symbol
+                matched_name = name
+                break
+
+        if not ticker_symbol:
+            search = yf.Search(query, max_results=3, enable_fuzzy_query=True)
+            if not search.quotes:
+                raise ValueError(f"未找到与 '{query}' 相关的股票代码")
+            ticker_symbol = search.quotes[0]["symbol"]
+            matched_name = search.quotes[0].get("shortname", ticker_symbol)
+
+        ticker = yf.Ticker(ticker_symbol)
+        hist = ticker.history(period="1d")
+        if hist.empty:
+            raise ValueError(f"未能获取 {matched_name} ({ticker_symbol}) 的最新数据")
+
+        price = float(hist["Close"].iloc[-1])
+        summary = f"{matched_name} ({ticker_symbol}) 最新收盘价 {price:.2f}"
+        return {
+            "summary": summary,
+            "instrument": {"symbol": ticker_symbol, "name": matched_name},
+            "quote": {
+                "last": price,
+                "currency": (ticker.fast_info.get("currency") if hasattr(ticker, "fast_info") else None),
+                "timestamp": hist.index[-1].isoformat() if not hist.index.empty else None,
+            },
+            "raw": {"history": hist.to_dict()},
+        }
 
 
 

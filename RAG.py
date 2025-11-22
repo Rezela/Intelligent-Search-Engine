@@ -62,7 +62,20 @@ def _format_api_context(context):
 
 def _stringify_context(context):
     if isinstance(context, dict):
-        return json.dumps(context, ensure_ascii=False, indent=2)
+        def convert(obj):
+            if isinstance(obj, list):
+                return [convert(item) for item in obj]
+            if isinstance(obj, dict):
+                return {str(k): convert(v) for k, v in obj.items()}
+            if hasattr(obj, "isoformat"):
+                try:
+                    return obj.isoformat()
+                except Exception:
+                    return str(obj)
+            return obj
+
+        safe_context = convert(context)
+        return json.dumps(safe_context, ensure_ascii=False, indent=2)
     return str(context)
 
 
