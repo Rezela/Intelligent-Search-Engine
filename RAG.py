@@ -115,6 +115,25 @@ def _format_api_context(context):
             )
             lines.append(f"路线提示: {preview}")
 
+        meta = context.get("meta") or {}
+        if meta:
+            strategy = meta.get("strategy")
+            query_used = meta.get("query")
+            if strategy:
+                lines.append(f"搜索策略：{strategy}")
+            if query_used:
+                lines.append(f"使用查询：{query_used}")
+
+        items = context.get("items") or []
+        if items:
+            previews = []
+            for item in items[:3]:
+                title = item.get("title") or "无标题"
+                link = item.get("link") or ""
+                snippet = (item.get("snippet") or "").strip()
+                previews.append(f"{title} - {snippet} ({link})")
+            lines.append("搜索结果：" + "； ".join(previews))
+
         return "\n".join(lines) or json.dumps(context, ensure_ascii=False)
     return str(context)
 

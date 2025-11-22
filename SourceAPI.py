@@ -5,7 +5,7 @@ import yfinance as yf
 from datetime import datetime, timedelta
 
 import os
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from dotenv import load_dotenv
 
 # 加载 .env 文件
@@ -1011,7 +1011,66 @@ class FinanceAPIHandler(BaseAPIHandler):
 # Google Search API
 class GoogleSearchAPIHandler(BaseAPIHandler):
     ENDPOINT = "https://customsearch.googleapis.com/customsearch/v1"
-    RECENT_KEYWORDS = ["最新", "今天", "今日", "近期", "最近", "news", "latest", "today", "recent"]
+    NEWS_KEYWORDS = [
+        "新闻",
+        "消息",
+        "報道",
+        "报道",
+        "快訊",
+        "快讯",
+        "headlines",
+        "headline",
+        "breaking",
+        "update",
+        "updates",
+        "latest news",
+        "最新消息",
+        "最新动态",
+        "最新新聞",
+        "news",
+    ]
+    REFERENCE_KEYWORDS = [
+        "如何",
+        "怎么",
+        "怎麼",
+        "怎么办",
+        "指南",
+        "指引",
+        "政策",
+        "規定",
+        "规定",
+        "assessment",
+        "assess",
+        "评估",
+        "紫外",
+        "紫外線",
+        "紫外线",
+        "uv",
+        "空气质量",
+        "空氣質量",
+        "aqi",
+        "风球",
+        "風球",
+        "typhoon",
+        "signal",
+        "热带气旋",
+        "熱帶氣旋",
+        "tropical cyclone",
+    ]
+    AUGMENT_RULES = [
+        {
+            "keywords": ["紫外線", "紫外线", "uv"],
+            "extras": ['"UV index"', "紫外线 指数"],
+        },
+        {
+            "keywords": ["风球", "風球", "typhoon signal", "热带气旋", "熱帶氣旋", "台风", "颱風"],
+            "extras": ["香港 天文台", "HKO", '"typhoon signal"'],
+        },
+        {
+            "keywords": ["空气质量", "空氣質量", "aqi"],
+            "extras": ['"air quality"', "AQI"],
+        },
+    ]
 
     def __init__(self):
         self.api_key = os.getenv("GOOGLESEARCH_API_KEY")
@@ -1028,36 +1087,152 @@ class GoogleSearchAPIHandler(BaseAPIHandler):
             lines.append(f"[{idx}] {title}\n链接: {link}\n摘要: {snippet}")
         return "\n\n".join(lines)
 
-    def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+    def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if not self.api_key or not self.engine_id:
-            return "Google Search API 未配置，请设置 GOOGLESEARCH_API_KEY 及 GOOGLESEARCH_ENGINE_ID。"
+            error_msg = "Google Search API 未配置，请设置 GOOGLESEARCH_API_KEY 及 GOOGLESEARCH_ENGINE_ID。"
+            return {"summary": error_msg, "error": error_msg, "items": [], "meta": {"strategy": "config"}}
 
-        time_scope = self._extract_time_scope(metadata)
-        params = self._build_params(query, time_scope)
+        search_query, intent_name, time_scope, site = self._extract_entities(query, metadata)
+        strategy = self._determine_strategy(search_query, metadata, site)
+        final_query = self._augment_query(search_query, strategy)
+        params = self._build_params(final_query, time_scope, strategy, site)
 
         try:
             response = self.session.get(self.ENDPOINT, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as exc:
-            return f"Google Search API 请求失败：{exc}"
+            error_msg = f"Google Search API 请求失败：{exc}"
+            return {
+                "summary": error_msg,
+                "error": error_msg,
+                "items": [],
+                "meta": {"strategy": strategy, "query": final_query},
+            }
 
         items = data.get("items") or []
         if not items:
-            return "Google Search 未找到相关结果。"
+            error_msg = "Google Search 未找到相关结果。"
+            return {
+                "summary": error_msg,
+                "error": error_msg,
+                "items": [],
+                "meta": {"strategy": strategy, "query": final_query},
+                "raw": {"params": self._public_params(params), "response": data},
+            }
 
-        return self._format_items(items)
+        formatted_text = self._format_items(items)
+        normalized_items = self._normalize_items(items)
+        summary = f"Google搜索策略：{strategy}；查询：{final_query}\n{formatted_text}"
 
-    def _extract_time_scope(self, metadata: Optional[Dict[str, Any]]) -> Optional[str]:
-        if not metadata:
-            return None
-        entities = metadata.get("entities") or {}
-        time_scope = entities.get("time_scope")
-        if isinstance(time_scope, str):
-            return time_scope.strip()
-        return None
+        return {
+            "summary": summary,
+            "items": normalized_items,
+            "meta": {
+                "strategy": strategy,
+                "query": final_query,
+                "site": site,
+                "time_scope": time_scope,
+            },
+            "raw": {"params": self._public_params(params), "response": data},
+        }
 
-    def _build_params(self, query: str, time_scope: Optional[str]) -> dict:
+    def _normalize_items(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized = []
+        for idx, item in enumerate(items[:5], 1):
+            normalized.append(
+                {
+                    "rank": idx,
+                    "title": item.get("title"),
+                    "link": item.get("link"),
+                    "displayLink": item.get("displayLink"),
+                    "snippet": (item.get("snippet") or "").strip(),
+                }
+            )
+        return normalized
+
+    def _extract_entities(
+        self, query: str, metadata: Optional[Dict[str, Any]]
+    ) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
+        intent_name = None
+        time_scope = None
+        site = None
+        search_query = query
+
+        if metadata:
+            intent_name = metadata.get("intent")
+            entities = metadata.get("entities") or {}
+
+            candidate_query = entities.get("search_query")
+            if isinstance(candidate_query, str) and candidate_query.strip():
+                search_query = candidate_query.strip()
+
+            candidate_site = entities.get("site")
+            if isinstance(candidate_site, str) and candidate_site.strip():
+                site = candidate_site.strip()
+
+            candidate_time_scope = entities.get("time_scope")
+            if intent_name == "google_search_api" and isinstance(candidate_time_scope, str):
+                time_scope = candidate_time_scope.strip()
+
+        return search_query, intent_name, time_scope, site
+
+    def _determine_strategy(
+        self,
+        query: str,
+        metadata: Optional[Dict[str, Any]],
+        site: Optional[str],
+    ) -> str:
+        if site:
+            return "site"
+
+        intent_name = metadata.get("intent") if metadata else None
+        reason = (metadata or {}).get("reason") or ""
+        if self._contains_keyword(query, self.NEWS_KEYWORDS) or self._contains_keyword(reason, self.NEWS_KEYWORDS):
+            return "news"
+        if intent_name == "google_search_api":
+            entities = (metadata or {}).get("entities") or {}
+            search_query = entities.get("search_query") or ""
+            if self._contains_keyword(search_query, self.NEWS_KEYWORDS):
+                return "news"
+
+        if self._contains_keyword(query, self.REFERENCE_KEYWORDS):
+            return "reference"
+
+        return "general"
+
+    def _augment_query(self, query: str, strategy: str) -> str:
+        additions: List[str] = []
+        lowered = query.lower()
+        for rule in self.AUGMENT_RULES:
+            if any(keyword.lower() in lowered for keyword in rule["keywords"]):
+                additions.extend(rule["extras"])
+
+        if strategy == "news" and "news" not in lowered and "新闻" not in query:
+            additions.append("news")
+
+        if not additions:
+            return query
+
+        unique_additions = list(dict.fromkeys(additions))
+        return f"{query} " + " ".join(unique_additions)
+
+    def _contains_keyword(self, text: str, keywords: List[str]) -> bool:
+        if not text:
+            return False
+        lowered = text.lower()
+        for keyword in keywords:
+            if keyword in text or keyword.lower() in lowered:
+                return True
+        return False
+
+    def _build_params(
+        self,
+        query: str,
+        time_scope: Optional[str],
+        strategy: str,
+        site: Optional[str],
+    ) -> dict:
         params = {
             "key": self.api_key,
             "cx": self.engine_id,
@@ -1067,25 +1242,20 @@ class GoogleSearchAPIHandler(BaseAPIHandler):
             "safe": "active",
         }
 
-        normalized = (time_scope or "").lower()
-        if normalized:
-            date_params = self._params_from_time_scope(normalized)
+        if site:
+            params["siteSearch"] = site
+
+        normalized_scope = (time_scope or "").lower()
+        if normalized_scope:
+            date_params = self._params_from_time_scope(normalized_scope)
             if date_params:
                 params.update(date_params)
-        else:
-            lowered = query.lower()
-            if any(keyword in query for keyword in self.RECENT_KEYWORDS):
-                params["sort"] = "date"
-                params["dateRestrict"] = "d7"
-            elif "本周" in query or "近一周" in query:
-                params["dateRestrict"] = "d7"
-                params["sort"] = "date"
-            elif "本月" in query or "近一月" in query:
-                params["dateRestrict"] = "m1"
-                params["sort"] = "date"
-            elif "今年" in query or "year" in lowered:
-                params["dateRestrict"] = "y1"
-                params["sort"] = "date"
+
+        if strategy == "news":
+            params.setdefault("sort", "date")
+            params.setdefault("dateRestrict", "d7")
+        elif strategy == "reference":
+            params["num"] = 7
 
         return params
 
@@ -1114,6 +1284,10 @@ class GoogleSearchAPIHandler(BaseAPIHandler):
             return {"dateRestrict": date_restrict, "sort": "date"}
 
         return None
+
+    @staticmethod
+    def _public_params(params: Dict[str, Any]) -> Dict[str, Any]:
+        return {k: v for k, v in params.items() if k not in {"key"}}
 
 
 # 股票别名映射表（可扩展）
