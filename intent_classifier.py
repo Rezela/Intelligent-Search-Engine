@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional
 
@@ -76,15 +77,39 @@ class LLMIntentClassifier:
         self,
         client: Optional[HKGAIClient] = None,
         allowed_intents: Optional[List[Dict[str, Any]]] = None,
-        confidence_threshold: float = 0.55,
+        confidence_threshold: Optional[float] = None,
+        max_retries: int = 2,
+        retry_on_low_confidence: bool = True,
     ):
         self.client = client or HKGAIClient()
         self.allowed_intents = allowed_intents or INTENT_DEFINITIONS
         self.intent_names = {item["name"] for item in self.allowed_intents}
-        self.confidence_threshold = confidence_threshold
+
+        env_threshold = os.getenv("LLM_INTENT_CONFIDENCE")
+        if confidence_threshold is not None:
+            threshold = confidence_threshold
+        elif env_threshold:
+            try:
+                threshold = float(env_threshold)
+            except ValueError:
+                threshold = 0.55
+        else:
+            threshold = 0.55
+
+        self.confidence_threshold = threshold
+        self.max_retries = max(1, max_retries)
+        self.retry_on_low_confidence = retry_on_low_confidence
+        self.low_confidence_instruction = (
+            "第一次判定置信度偏低，请重新审视用户意图。若无法确定，返回 rag。"
+        )
         self.last_result: Optional[Dict[str, Any]] = None
 
-    def _build_user_prompt(self, query: str) -> str:
+    def _build_user_prompt(
+        self,
+        query: str,
+        extra_instruction: Optional[str] = None,
+        attempt: int = 0,
+    ) -> str:
         intent_lines = []
         for item in self.allowed_intents:
             examples = "；".join(item.get("example_queries", []))
@@ -93,7 +118,7 @@ class LLMIntentClassifier:
             )
 
         instructions = "\n".join(intent_lines)
-        return (
+        prompt = (
             f"用户问题：{query}\n\n"
             "意图选项说明：\n"
             f"{instructions}\n\n"
@@ -101,6 +126,20 @@ class LLMIntentClassifier:
             f"{SCHEMA_DESCRIPTION}\n"
             "必须保证是有效 JSON，字段齐全。"
         )
+        if extra_instruction:
+            prompt += f"\n\n额外要求：{extra_instruction}"
+        if attempt > 0:
+            prompt += (
+                f"\n\n注意：此前解析失败或置信度不足，这是第 {attempt + 1} 次尝试，"
+                "请更明确地判断意图并返回有效 JSON。"
+            )
+        return prompt
+
+    @staticmethod
+    def _temperature_for_attempt(attempt: int) -> float:
+        if attempt <= 0:
+            return 0.0
+        return min(0.1 * attempt + 0.1, 0.6)
 
     def _parse_response(self, content: str) -> Optional[Dict[str, Any]]:
         if not content:
@@ -133,50 +172,90 @@ class LLMIntentClassifier:
         logging.warning("LLMIntentClassifier: 无法解析 JSON 响应：%s", content)
         return None
 
-    def classify(self, query: str) -> Optional[Dict[str, Any]]:
-        user_prompt = self._build_user_prompt(query)
-        response = self.client.chat(
-            self.SYSTEM_PROMPT,
-            user_prompt,
-            max_tokens=400,
-            temperature=0.0,
-        )
+    def classify(
+        self,
+        query: str,
+        extra_instruction: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        parsed: Optional[Dict[str, Any]] = None
+        last_error: Optional[str] = None
 
-        if not response:
-            logging.warning("LLMIntentClassifier: LLM 返回空响应")
-            return None
+        for attempt in range(self.max_retries):
+            user_prompt = self._build_user_prompt(
+                query,
+                extra_instruction=extra_instruction,
+                attempt=attempt,
+            )
+            response = self.client.chat(
+                self.SYSTEM_PROMPT,
+                user_prompt,
+                max_tokens=400,
+                temperature=self._temperature_for_attempt(attempt),
+            )
 
-        if "error" in response:
-            logging.warning("LLMIntentClassifier: LLM 请求失败：%s", response["error"])
-            return None
+            if not response:
+                last_error = "LLM 返回空响应"
+                continue
 
-        parsed = self._parse_response(response.get("content", ""))
+            if "error" in response:
+                last_error = response["error"]
+                continue
+
+            parsed = self._parse_response(response.get("content", ""))
+            if parsed:
+                break
+
+        if not parsed and last_error:
+            logging.warning("LLMIntentClassifier: LLM 请求失败：%s", last_error)
+        elif not parsed:
+            logging.warning("LLMIntentClassifier: 多轮尝试仍无法解析 JSON")
+
         self.last_result = parsed
         return parsed
 
     def select_intent(self, query: str) -> Optional[str]:
+        def extract(result: Optional[Dict[str, Any]]) -> (Optional[str], float):
+            if not result:
+                return None, 0.0
+            intent_value = result.get("intent")
+            if intent_value not in self.intent_names:
+                logging.info("LLMIntentClassifier: 未知 intent=%s，fallback", intent_value)
+                return None, 0.0
+            try:
+                confidence_value = float(result.get("confidence", 0))
+            except (TypeError, ValueError):
+                confidence_value = 0.0
+            return intent_value, confidence_value
+
         result = self.classify(query)
-        if not result:
-            return None
+        intent, confidence = extract(result)
 
-        intent = result.get("intent")
-        if intent not in self.intent_names:
-            logging.info("LLMIntentClassifier: 未知 intent=%s，fallback", intent)
-            return None
-
-        try:
-            confidence = float(result.get("confidence", 0))
-        except (TypeError, ValueError):
-            confidence = 0.0
-
-        if confidence >= self.confidence_threshold:
+        if intent and confidence >= self.confidence_threshold:
             return intent
 
-        logging.info(
-            "LLMIntentClassifier: intent=%s 但置信度 %.2f 低于阈值 %.2f，fallback",
-            intent,
-            confidence,
-            self.confidence_threshold,
-        )
+        if self.retry_on_low_confidence:
+            logging.info(
+                "LLMIntentClassifier: intent=%s 置信度 %.2f 低于阈值 %.2f，重新尝试",
+                intent,
+                confidence,
+                self.confidence_threshold,
+            )
+            retry_result = self.classify(
+                query,
+                extra_instruction=self.low_confidence_instruction,
+            )
+            intent_retry, confidence_retry = extract(retry_result)
+            if intent_retry and confidence_retry >= self.confidence_threshold:
+                return intent_retry
+            intent = intent_retry
+            confidence = confidence_retry
+
+        if intent:
+            logging.info(
+                "LLMIntentClassifier: intent=%s 置信度 %.2f 仍低于阈值 %.2f，fallback",
+                intent,
+                confidence,
+                self.confidence_threshold,
+            )
         return None
 
