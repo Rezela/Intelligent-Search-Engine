@@ -73,6 +73,37 @@ def _format_api_context(context):
         if air_forecast and air_forecast.get("aqi"):
             lines.append(f"未来空气质量：AQI={air_forecast['aqi']}（{air_forecast.get('category')}）")
 
+        typhoon_signal = context.get("typhoon_signal")
+        if isinstance(typhoon_signal, dict) and typhoon_signal.get("message"):
+            lines.append(f"热带气旋信号：{typhoon_signal.get('message')}")
+
+        warnings = context.get("warnings") or []
+        if warnings:
+            lines.append("天气警告：" + "；".join(str(w) for w in warnings[:3]))
+
+        uv = context.get("uv_index")
+        if isinstance(uv, dict) and uv.get("value") is not None:
+            lines.append(f"紫外线指数：{uv.get('value')}（{uv.get('desc') or '—'}）")
+
+        tc_track = context.get("tc_track")
+        if isinstance(tc_track, dict):
+            latest = tc_track.get("latest") or {}
+            storm = tc_track.get("stormName") or tc_track.get("stormId")
+            if latest and storm:
+                lines.append(
+                    f"{storm} 当前位置 {latest.get('lat')}, {latest.get('lon')} 时间 {latest.get('time')}，强度 {latest.get('intensity') or latest.get('category')}"
+                )
+
+        tips = context.get("special_weather_tips") or []
+        if tips:
+            first_tip = tips[0]
+            if isinstance(first_tip, dict):
+                content = first_tip.get("content") or first_tip.get("title")
+            else:
+                content = first_tip
+            if content:
+                lines.append(f"特别天气提示：{content}")
+
         advisories = context.get("advisories") or []
         if advisories:
             lines.append("提示：" + "；".join(advisories))

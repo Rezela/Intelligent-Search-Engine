@@ -21,6 +21,57 @@ class BaseAPIHandler:
 
 
 # 天气 API
+class HKOOpenDataClient:
+    BASE_URL = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php"
+    TC_TRACK_URL = "https://data.weather.gov.hk/weatherAPI/opendata/tcTrack"
+
+    def __init__(self, session: Optional[requests.Session] = None):
+        self.session = session or requests.Session()
+
+    def fetch(self, data_type: str, lang: str = "tc", extra: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        params = {"dataType": data_type, "lang": lang}
+        if extra:
+            params.update(extra)
+        try:
+            resp = self.session.get(self.BASE_URL, params=params, timeout=10)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException:
+            return None
+
+    def warning_summary(self, lang: str = "tc") -> Optional[Dict[str, Any]]:
+        return self.fetch("warnsum", lang=lang)
+
+    def special_weather_tips(self, lang: str = "tc") -> Optional[Dict[str, Any]]:
+        return self.fetch("swt", lang=lang)
+
+    def uv_index(self, lang: str = "tc") -> Optional[Dict[str, Any]]:
+        return self.fetch("uvindex", lang=lang)
+
+    def local_weather_forecast(self, lang: str = "tc") -> Optional[Dict[str, Any]]:
+        return self.fetch("flw", lang=lang)
+
+    def tc_list(self, lang: str = "tc") -> Optional[Dict[str, Any]]:
+        params = {"lang": lang}
+        try:
+            resp = self.session.get(self.TC_TRACK_URL, params=params, timeout=10)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException:
+            return None
+
+    def tc_track(self, storm_id: str, lang: str = "tc") -> Optional[Dict[str, Any]]:
+        if not storm_id:
+            return None
+        params = {"stormId": storm_id, "lang": lang}
+        try:
+            resp = self.session.get(self.TC_TRACK_URL, params=params, timeout=10)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException:
+            return None
+
+
 class WeatherAPIHandler(BaseAPIHandler):
     GEO_URL = "https://api.openweathermap.org/geo/1.0/direct"
     CURRENT_URL = "https://api.openweathermap.org/data/2.5/weather"
@@ -48,6 +99,26 @@ class WeatherAPIHandler(BaseAPIHandler):
         "New York",
         "Singapore",
     ]
+    HK_KEYWORDS = [
+        "hong kong",
+        "香港",
+        "香江",
+        "天文台",
+        "天文臺",
+        "hko",
+        "八號",
+        "八号",
+        "no.8",
+        "八號風球",
+        "八號風暴信號",
+        "typhoon signal",
+        "tropical cyclone",
+        "熱帶氣旋",
+        "台風",
+        "暴雨警告",
+        "black rain",
+        "amber rain",
+    ]
 
     def __init__(self):
         self.api_key = os.getenv("WEATHER_API_KEY")
@@ -55,10 +126,14 @@ class WeatherAPIHandler(BaseAPIHandler):
         self.lang = os.getenv("WEATHER_LANG", "zh_cn")
         self.units = os.getenv("WEATHER_UNITS", "metric")
         self._geo_cache: Dict[str, Dict[str, Any]] = {}
+        self.hko_client = HKOOpenDataClient(session=self.session)
 
     def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if not self.api_key:
             return {"error": "未配置 WEATHER_API_KEY"}
+
+        if self._is_library_signal_query(query):
+            return self._library_signal_policy_response()
 
         city = self._resolve_city(query, metadata)
         if not city:
@@ -85,6 +160,7 @@ class WeatherAPIHandler(BaseAPIHandler):
         air_detail = self._extract_air_quality(air_raw)
         air_forecast_detail = self._extract_air_forecast(air_forecast_raw)
         advisories = self._deduce_advisories(current_detail, hourly_detail, air_detail)
+        hko_context = self._fetch_hko_context(query, city)
 
         summary = self._build_summary(
             location["name"],
@@ -94,6 +170,7 @@ class WeatherAPIHandler(BaseAPIHandler):
             air_detail,
             advisories,
             self._infer_time_scope(query, metadata),
+            hko_context,
         )
 
         return {
@@ -109,12 +186,17 @@ class WeatherAPIHandler(BaseAPIHandler):
             "forecast_daily": daily_detail,
             "air_quality": {"current": air_detail, "forecast": air_forecast_detail},
             "advisories": advisories,
+            "typhoon_signal": hko_context.get("typhoon_signal"),
+            "warnings": hko_context.get("warnings"),
+            "special_weather_tips": hko_context.get("special_weather_tips"),
+            "uv_index": hko_context.get("uv_index"),
             "raw": {
                 "current": current_raw,
                 "forecast_hourly": hourly_raw,
                 "forecast_daily": daily_raw,
                 "air_quality": air_raw,
                 "air_quality_forecast": air_forecast_raw,
+                "hko": hko_context.get("raw"),
             },
         }
 
@@ -138,6 +220,8 @@ class WeatherAPIHandler(BaseAPIHandler):
         for city in self.FALLBACK_CITIES:
             if city.lower() in lowered:
                 return city
+        if any(keyword in lowered for keyword in self.HK_KEYWORDS):
+            return "Hong Kong"
         return None
 
     def _geocode_city(self, city: str) -> Optional[Dict[str, Any]]:
@@ -177,6 +261,169 @@ class WeatherAPIHandler(BaseAPIHandler):
     def _fetch_air_quality_forecast(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
         params = {"lat": lat, "lon": lon}
         return self._request(self.AIR_FORECAST_URL, params)
+
+    def _is_library_signal_query(self, query: str) -> bool:
+        lowered = query.lower()
+        return (
+            ("公共圖書館" in query or "公共图书馆" in query or "public library" in lowered)
+            and ("signal" in lowered or "信號" in query or "信号" in query or "風球" in query)
+        )
+
+    def _library_signal_policy_response(self) -> Dict[str, Any]:
+        summary = (
+            "香港公共圖書館會在天文台發出八號或以上熱帶氣旋警告信號、或黑色暴雨警告時暫停開放；"
+            "當紅色/黃色暴雨或三號風球生效時通常維持有限度服務，視乎最新官方公告。"
+        )
+        return {
+            "summary": summary,
+            "policy": {
+                "closure_signals": ["Typhoon Signal No.8 或以上", "黑色暴雨警告"],
+                "limited_service": ["Typhoon Signal No.3", "紅色/黃色暴雨警告"],
+            },
+        }
+
+    def _fetch_hko_context(self, query: str, city: str) -> Dict[str, Any]:
+        if not city:
+            return {}
+        if city.lower() not in {"hong kong", "hong kong island", "香港"} and not self._looks_like_hko_request(query):
+            return {}
+        lang = "tc" if self.lang in ("zh_tw", "tc") else ("sc" if self.lang in ("zh_cn", "sc") else "en")
+        warnings_raw = self.hko_client.warning_summary(lang=lang)
+        swt_raw = self.hko_client.special_weather_tips(lang=lang)
+        uv_raw = self.hko_client.uv_index(lang=lang)
+        tc_list = self.hko_client.tc_list(lang=lang)
+        storm_id = self._latest_storm_id(tc_list)
+        track_raw = self.hko_client.tc_track(storm_id, lang=lang) if storm_id else None
+        track_summary = self._parse_tc_track(track_raw)
+
+        typhoon_signal, warnings = self._parse_warning_summary(warnings_raw, storm_id, track_summary)
+        uv_info = self._parse_uv_index(uv_raw)
+        tips = self._parse_special_weather_tips(swt_raw)
+        if not warnings:
+            warnings = ["香港天文台目前沒有生效的天氣警告。"]
+        if not typhoon_signal:
+            typhoon_signal = {
+                "code": "none",
+                "message": "天文台目前沒有懸掛任何熱帶氣旋警告信號。",
+                "issueTime": (warnings_raw or {}).get("updateTime"),
+                "track_summary": track_summary,
+            }
+        return {
+            "typhoon_signal": typhoon_signal,
+            "warnings": warnings,
+            "special_weather_tips": tips,
+            "uv_index": uv_info,
+            "tc_track": track_summary,
+            "raw": {
+                "warning_summary": warnings_raw,
+                "special_weather_tips": swt_raw,
+                "uv_index": uv_raw,
+                "tc_list": tc_list,
+                "tc_track": track_raw,
+            },
+        }
+
+    def _looks_like_hko_request(self, query: str) -> bool:
+        lowered = query.lower()
+        return any(keyword in lowered for keyword in self.HK_KEYWORDS)
+
+    def _latest_storm_id(self, payload: Optional[Dict[str, Any]]) -> Optional[str]:
+        if not payload:
+            return None
+        storms = payload.get("tcList") or payload.get("data") or payload.get("storms") or []
+        if not storms:
+            return None
+        def _order_key(item):
+            return item.get("issueTime") or item.get("updateTime") or item.get("time") or ""
+        storms_sorted = sorted(storms, key=_order_key, reverse=True)
+        primary = storms_sorted[0]
+        for key in ("stormId", "id", "storm_id"):
+            if primary.get(key):
+                return primary[key]
+        return None
+
+    def _parse_tc_track(self, payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not payload:
+            return None
+        track_points = payload.get("tcTrack") or payload.get("track") or payload.get("points") or []
+        if not track_points:
+            return None
+        latest_point = track_points[-1]
+        storm_name = (
+            payload.get("name") or payload.get("stormName") or payload.get("tcName") or ""
+        )
+        return {
+            "stormName": storm_name,
+            "stormId": payload.get("stormId"),
+            "latest": {
+                "time": latest_point.get("time") or latest_point.get("recordTime"),
+                "lat": latest_point.get("lat"),
+                "lon": latest_point.get("lng") or latest_point.get("lon"),
+                "intensity": latest_point.get("intensity"),
+                "category": latest_point.get("cat") or latest_point.get("category"),
+                "distanceToHK": latest_point.get("distanceToHK"),
+            },
+            "points": track_points,
+        }
+
+    def _parse_warning_summary(self, payload: Optional[Dict[str, Any]], storm_id: Optional[str], track_summary: Optional[Dict[str, Any]]) -> (Optional[Dict[str, Any]], List[str]):
+        if not payload:
+            return None, []
+        details = payload.get("details") or []
+        warnings: List[str] = []
+        typhoon_signal = None
+        for item in details:
+            message = item.get("warningMessage") or item.get("name")
+            if not message:
+                continue
+            warnings.append(message)
+            warning_type = (item.get("warningType") or "").lower()
+            code = item.get("warningStatementCode") or item.get("warningCode")
+            issue_time = item.get("issueTime") or payload.get("updateTime")
+            if warning_type == "tc":
+                typhoon_signal = {
+                    "code": code,
+                    "message": message,
+                    "issueTime": issue_time,
+                    "track_summary": track_summary,
+                    "stormId": storm_id,
+                }
+        return typhoon_signal, warnings
+
+    def _parse_uv_index(self, payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not payload:
+            return None
+        records = payload.get("uvindex") or payload.get("data") or []
+        if not records:
+            return None
+        record = records[0]
+        try:
+            value = float(record.get("value"))
+        except (TypeError, ValueError):
+            value = record.get("value")
+        return {
+            "value": value,
+            "desc": record.get("desc") or record.get("description"),
+            "place": record.get("place"),
+            "recordTime": record.get("recordTime") or payload.get("updateTime"),
+        }
+
+    def _parse_special_weather_tips(self, payload: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not payload:
+            return []
+        tips = payload.get("specialWeatherTips") or payload.get("data") or []
+        formatted: List[Dict[str, Any]] = []
+        for tip in tips:
+            if not tip:
+                continue
+            formatted.append(
+                {
+                    "title": tip.get("title") or "",
+                    "content": tip.get("content") or tip.get("desc") or "",
+                    "issueTime": tip.get("issueTime") or tip.get("updateTime"),
+                }
+            )
+        return formatted
 
     def _extract_current(self, payload: Dict[str, Any], tz_offset: int) -> Dict[str, Any]:
         weather = (payload.get("weather") or [{}])[0]
@@ -285,6 +532,7 @@ class WeatherAPIHandler(BaseAPIHandler):
         air_quality: Optional[Dict[str, Any]],
         advisories: List[str],
         time_scope: Optional[str],
+        hko_context: Dict[str, Any],
     ) -> str:
         parts = [
             f"{city}当前{current.get('description') or '天气情况'}，"
@@ -316,6 +564,39 @@ class WeatherAPIHandler(BaseAPIHandler):
 
         if advisories:
             parts.append("提示：" + "；".join(advisories) + "。")
+
+        ty_signal = hko_context.get("typhoon_signal")
+        if ty_signal:
+            parts.append(f"热带气旋警告：{ty_signal.get('message')}")
+
+        warnings = hko_context.get("warnings") or []
+        if warnings:
+            parts.append("香港天气警告：" + "；".join(warnings[:2]))
+
+        uv_index = hko_context.get("uv_index")
+        if uv_index:
+            parts.append(
+                f"15分钟紫外线指数 {uv_index.get('value')}（{uv_index.get('desc') or '—'}）"
+            )
+
+        tc_track = hko_context.get("tc_track")
+        if tc_track:
+            latest = tc_track.get("latest") or {}
+            storm = tc_track.get("stormName") or tc_track.get("stormId") or "热带气旋"
+            lat = latest.get("lat")
+            lon = latest.get("lon")
+            time = latest.get("time")
+            intensity = latest.get("intensity") or latest.get("category")
+            parts.append(
+                f"{storm} 最新位置 ({lat}, {lon}) 于 {time}，强度 {intensity or '未知'}。"
+            )
+
+        tips = hko_context.get("special_weather_tips") or []
+        if tips:
+            tip = tips[0]
+            content = tip.get("content") or tip.get("title")
+            if content:
+                parts.append(f"特别天气提示：{content}")
 
         return "".join(parts)
 

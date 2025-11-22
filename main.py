@@ -19,23 +19,23 @@ def run_queries(language: str):
     queries = [
         # "哆啦A梦使用的3个秘密道具分别是什么？",  # RAG
         
-        "北京今天的天气情况",  # Weather API
-        "What's the weather forecast for this afternoon in Hong Kong?",
-        "Will it rain in Shenzhen tomorrow?",
-        "What is the temperature in Beijing right now?",
-        "What time is sunset in Hong Kong today?",
-        "What is the wind speed in Shanghai?",
+        # "北京今天的天气情况",  # Weather API
+        # "What's the weather forecast for this afternoon in Hong Kong?",
+        # "Will it rain in Shenzhen tomorrow?",
+        # "What is the temperature in Beijing right now?",
+        # "What time is sunset in Hong Kong today?",
+        # "What is the wind speed in Shanghai?",
+        # "明天广州的空气质量指数是多少？",
+        # "澳門現在的濕度是多少？",
+        # "今天香港的日出時間是幾點？",
+        # "Is an evening run in Mong Kok today advisable?",
         "香港天文臺現在懸掛的是什麼熱帶氣旋警告信號？",
         "香港的公共圖書館在哪個熱帶氣旋警告信號下會關閉？",
-        "明天广州的空气质量指数是多少？",
-        "澳門現在的濕度是多少？",
-        "今天香港的日出時間是幾點？",
-        "Assess the chance of Typhoon Signal No.8 tonight?",
-        "Will heavy rain affect Shenzhen Bay Port opening hours?",
-        "Is an evening run in Mong Kok today advisable?",
         "Latest HKO forecast track for nearest tropical cyclone",
         "珠海今天的紫外線強度如何？",
-
+        "Assess the chance of Typhoon Signal No.8 tonight?",
+        "Will heavy rain affect Shenzhen Bay Port opening hours?",
+        
         # "科大到中环要多久",  # Traffic API
         # "Provide the route from Kennedy Town to Hong Kong International Airport.",
         # "由堅尼地城前往香港國際機場的路線是什麼？",

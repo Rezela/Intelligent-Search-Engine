@@ -3,7 +3,29 @@ import logging
 
 ROUTING_RULES = {
     "weather": {
-        "keywords": ["天气", "气温", "温度", "湿度", "风", "下雨", "晴天", "阴天", "多云", "暴雨", "台风", "空气质量", "天气预报"],
+        "keywords": [
+            "天气",
+            "气温",
+            "温度",
+            "湿度",
+            "风",
+            "下雨",
+            "晴天",
+            "阴天",
+            "多云",
+            "暴雨",
+            "台风",
+            "空气质量",
+            "天气预报",
+            "信号",
+            "信號",
+            "风球",
+            "typhoon",
+            "signal",
+            "公共圖書館",
+            "公共图书馆",
+            "public library",
+        ],
         "api": "weather_api",
     },
     "traffic": {
@@ -29,8 +51,20 @@ class SourceRouter:
     def __init__(self, intent_classifier=None, rules=None):
         self.rules = rules or ROUTING_RULES
         self.intent_classifier = intent_classifier
+        self._weather_forced_keywords = [
+            "公共圖書館",
+            "公共图书馆",
+            "public library",
+            "八號風球",
+            "typhoon signal",
+            "熱帶氣旋信號",
+        ]
 
     def route(self, query: str):
+        lowered = query.lower()
+        if any(keyword.lower() in lowered for keyword in self._weather_forced_keywords):
+            return "weather_api"
+
         if self.intent_classifier:
             try:
                 intent = self.intent_classifier.select_intent(query)
@@ -42,7 +76,7 @@ class SourceRouter:
                 pass
 
         for cfg in self.rules.values():
-            if any(keyword in query for keyword in cfg["keywords"]):
+            if any(keyword.lower() in lowered for keyword in cfg["keywords"]):
                 return cfg["api"]
 
         return "rag"
