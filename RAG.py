@@ -7,6 +7,7 @@ import logging
 from logs import init_logger, new_query_id
 from SourceRouter import SourceRouter
 from SourceAPI import HANDLERS
+from intent_classifier import LLMIntentClassifier
 
 # RAG 的 Prompt 构造 （仅使用本地上下文，无信息则不输出）
 def make_rag_prompt(query: str, context: str) -> Tuple[str, str]:
@@ -32,7 +33,8 @@ class FullRAG:
     def __init__(self, db):
         self.db = db
         self.llm_client = HKGAIClient()
-        self.router = SourceRouter()
+        self.intent_classifier = LLMIntentClassifier(client=self.llm_client)
+        self.router = SourceRouter(intent_classifier=self.intent_classifier)
 
     def query(self, user_query: str, language: str = "Chinese", top_k: int = 5):
         # Step 0: 智能源选择
@@ -135,7 +137,9 @@ if __name__ == "__main__":
         "哆啦A梦使用的3个秘密道具分别是什么？",   # RAG
         "北京今天的天气情况",                   # Weather API
         "科大到中环要多久",                      # Traffic API
-        "中国石化今天的收盘价是多少"             # Finance API
+        "中国石化今天的收盘价是多少",             # Finance API
+        
+
     ]
 
     for q in queries:
@@ -143,7 +147,7 @@ if __name__ == "__main__":
         print(q)
         result = rag.query(q, language="Chinese")
 
-        if result["source"] in ["weather_api", "traffic_api", "finance_api"]:
+        if result["source"] in ["weather_api", "traffic_api", "finance_api", "public_service_api"]:
             print("\n=== API Result ===")
             print(result["context"])
             print("\n=== Answer ===")
