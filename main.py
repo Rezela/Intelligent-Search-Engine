@@ -3,6 +3,7 @@ import json
 
 from DB import get_db
 from RAG import FullRAG
+from DeepSearch import DeepSearchManager
 from logs import init_logger, new_query_id
 
 
@@ -15,6 +16,7 @@ def run_queries(language: str):
 
     db = get_db(persistent=True, path="./chroma_db", name="default")
     rag = FullRAG(db)
+    deep_search = DeepSearchManager(rag)
 
     queries = [
         # "哆啦A梦使用的3个秘密道具分别是什么？",  # RAG
@@ -53,7 +55,7 @@ def run_queries(language: str):
     for q in queries:
         print("\n\n=== Query ===")
         print(q)
-        result = rag.query(q, language=language)
+        result = deep_search.run(q, language=language)
 
         if "retrieved" in result and "reranked" in result:
             print("\n=== Retrieved ===")
@@ -80,9 +82,21 @@ def run_queries(language: str):
             print("\n=== Answer ===")
             print(result.get("answer", ""))
 
-        print("\n=== Timing ===")
-        for k, v in result["timing"].items():
-            print(f"{k}: {v:.3f}s")
+        timings = result.get("timing") or {}
+        if timings:
+            print("\n=== Timing ===")
+            for k, v in timings.items():
+                try:
+                    print(f"{k}: {float(v):.3f}s")
+                except (TypeError, ValueError):
+                    print(f"{k}: {v}")
+
+        if result.get("attempt_history"):
+            print("\n=== Attempts ===")
+            for info in result["attempt_history"]:
+                print(
+                    f"#{info['attempt']} strategy={info['strategy']} source={info['source']} preview={info['answer_preview']}"
+                )
 
 
 if __name__ == "__main__":
