@@ -1,9 +1,10 @@
+import json
+import time
+import logging
+from typing import Tuple
 from api import HKGAIClient
 from retrieve import chromadb_retrieve
 from rerank import rerank
-from typing import Tuple
-import time
-import logging
 from logs import init_logger, new_query_id
 from SourceRouter import SourceRouter
 from SourceAPI import HANDLERS
@@ -40,6 +41,15 @@ class FullRAG:
         # Step 0: 智能源选择
         t0 = time.time()
         source = self.router.route(user_query)
+        intent_snapshot = self.intent_classifier.last_result
+        if intent_snapshot:
+            try:
+                logging.info(
+                    "Intent Result: %s",
+                    json.dumps(intent_snapshot, ensure_ascii=False),
+                )
+            except TypeError:
+                logging.info("Intent Result (non-serializable): %s", intent_snapshot)
 
         if source in HANDLERS:
             context = HANDLERS[source].handle(user_query)
