@@ -51,16 +51,31 @@ def _format_api_context(context):
                 f"当前温度 {temp}°C, 湿度 {humidity}%" if humidity is not None else f"当前温度 {temp}°C"
             )
 
-        forecast = context.get("forecast") or []
-        if forecast:
-            first = forecast[0]
+        hourly = context.get("forecast_hourly") or context.get("forecast") or []
+        if hourly:
+            first = hourly[0]
             lines.append(
-                f"短期预报: {first.get('description')}，温度 {first.get('temperature')}°C"
+                f"短期预报: {first.get('description')}，温度 {first.get('temperature')}°C，降水概率 {int((first.get('precip_probability') or 0)*100)}%"
             )
 
-        air = context.get("air_quality") or {}
-        if air and air.get("aqi"):
-            lines.append(f"空气质量指数 AQI={air['aqi']}")
+        daily = context.get("forecast_daily") or []
+        if daily:
+            day = daily[0]
+            lines.append(
+                f"明日 {day.get('date')}：{day.get('description')}，温度 {day.get('temp_min')}~{day.get('temp_max')}°C"
+            )
+
+        air_block = context.get("air_quality") or {}
+        air_current = air_block.get("current") if isinstance(air_block, dict) else air_block
+        if air_current and air_current.get("aqi"):
+            lines.append(f"空气质量指数 AQI={air_current['aqi']}（{air_current.get('category')}）")
+        air_forecast = air_block.get("forecast") if isinstance(air_block, dict) else None
+        if air_forecast and air_forecast.get("aqi"):
+            lines.append(f"未来空气质量：AQI={air_forecast['aqi']}（{air_forecast.get('category')}）")
+
+        advisories = context.get("advisories") or []
+        if advisories:
+            lines.append("提示：" + "；".join(advisories))
 
         steps = context.get("steps") or []
         if steps:
@@ -74,19 +89,27 @@ def _format_api_context(context):
 
 
 def _stringify_context(context):
-    if isinstance(context, dict):
-        def convert(obj):
-            if isinstance(obj, list):
-                return [convert(item) for item in obj]
-            if isinstance(obj, dict):
-                return {str(k): convert(v) for k, v in obj.items()}
-            if hasattr(obj, "isoformat"):
-                try:
-                    return obj.isoformat()
-                except Exception:
-                    return str(obj)
-            return obj
+    def convert(obj, depth=0):
+        if isinstance(obj, list):
+            sliced = [convert(item, depth + 1) for item in obj[:5]]
+            if len(obj) > 5:
+                sliced.append(f"...共省略 {len(obj) - 5} 条")
+            return sliced
+        if isinstance(obj, dict):
+            trimmed = {}
+            for k, v in obj.items():
+                if k == "raw":
+                    continue
+                trimmed[str(k)] = convert(v, depth + 1)
+            return trimmed
+        if hasattr(obj, "isoformat"):
+            try:
+                return obj.isoformat()
+            except Exception:
+                return str(obj)
+        return obj
 
+    if isinstance(context, dict):
         safe_context = convert(context)
         return json.dumps(safe_context, ensure_ascii=False, indent=2)
     return str(context)

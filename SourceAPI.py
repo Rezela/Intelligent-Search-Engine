@@ -2,6 +2,7 @@ import requests
 import googlemaps
 import re
 import yfinance as yf
+from datetime import datetime, timedelta
 
 import os
 from typing import Optional, Dict, Any, List
@@ -23,15 +24,37 @@ class BaseAPIHandler:
 class WeatherAPIHandler(BaseAPIHandler):
     GEO_URL = "https://api.openweathermap.org/geo/1.0/direct"
     CURRENT_URL = "https://api.openweathermap.org/data/2.5/weather"
-    FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
+    FORECAST_HOURLY_URL = "https://api.openweathermap.org/data/2.5/forecast"
+    FORECAST_DAILY_URL = "https://api.openweathermap.org/data/2.5/forecast/daily"
     AIR_URL = "https://api.openweathermap.org/data/2.5/air_pollution"
-    FALLBACK_CITIES = ["北京", "上海", "广州", "深圳", "香港", "巴黎", "伦敦", "纽约"]
+    AIR_FORECAST_URL = "https://api.openweathermap.org/data/2.5/air_pollution/forecast"
+    FALLBACK_CITIES = [
+        "北京",
+        "上海",
+        "广州",
+        "深圳",
+        "香港",
+        "澳门",
+        "巴黎",
+        "伦敦",
+        "纽约",
+        "Beijing",
+        "Shanghai",
+        "Shenzhen",
+        "Hong Kong",
+        "Macau",
+        "Guangzhou",
+        "London",
+        "New York",
+        "Singapore",
+    ]
 
     def __init__(self):
         self.api_key = os.getenv("WEATHER_API_KEY")
         self.session = requests.Session()
         self.lang = os.getenv("WEATHER_LANG", "zh_cn")
         self.units = os.getenv("WEATHER_UNITS", "metric")
+        self._geo_cache: Dict[str, Dict[str, Any]] = {}
 
     def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if not self.api_key:
@@ -50,14 +73,28 @@ class WeatherAPIHandler(BaseAPIHandler):
         if not current_raw or "main" not in current_raw:
             return {"error": f"无法获取 {location['name']} 的天气信息"}
 
-        forecast_raw = self._fetch_forecast(lat, lon)
+        tz_offset = current_raw.get("timezone", 0)
+        hourly_raw = self._fetch_hourly_forecast(lat, lon)
+        daily_raw = self._fetch_daily_forecast(lat, lon)
         air_raw = self._fetch_air_quality(lat, lon)
+        air_forecast_raw = self._fetch_air_quality_forecast(lat, lon)
 
-        current_detail = self._extract_current(current_raw)
-        forecast_detail = self._extract_forecast(forecast_raw)
+        current_detail = self._extract_current(current_raw, tz_offset)
+        hourly_detail = self._extract_hourly_forecast(hourly_raw, tz_offset)
+        daily_detail = self._extract_daily_forecast(daily_raw, tz_offset)
         air_detail = self._extract_air_quality(air_raw)
+        air_forecast_detail = self._extract_air_forecast(air_forecast_raw)
+        advisories = self._deduce_advisories(current_detail, hourly_detail, air_detail)
 
-        summary = self._build_summary(location["name"], current_detail, forecast_detail, air_detail)
+        summary = self._build_summary(
+            location["name"],
+            current_detail,
+            hourly_detail,
+            daily_detail,
+            air_detail,
+            advisories,
+            self._infer_time_scope(query, metadata),
+        )
 
         return {
             "summary": summary,
@@ -68,12 +105,16 @@ class WeatherAPIHandler(BaseAPIHandler):
                 "lon": lon,
             },
             "current": current_detail,
-            "forecast": forecast_detail,
-            "air_quality": air_detail,
+            "forecast_hourly": hourly_detail,
+            "forecast_daily": daily_detail,
+            "air_quality": {"current": air_detail, "forecast": air_forecast_detail},
+            "advisories": advisories,
             "raw": {
                 "current": current_raw,
-                "forecast": forecast_raw,
+                "forecast_hourly": hourly_raw,
+                "forecast_daily": daily_raw,
                 "air_quality": air_raw,
+                "air_quality_forecast": air_forecast_raw,
             },
         }
 
@@ -90,43 +131,59 @@ class WeatherAPIHandler(BaseAPIHandler):
         if metadata:
             entities = metadata.get("entities") or {}
             entity_city = entities.get("location")
-            if entity_city:
+            if isinstance(entity_city, str) and entity_city.strip():
                 return entity_city.strip()
 
+        lowered = query.lower()
         for city in self.FALLBACK_CITIES:
-            if city in query:
+            if city.lower() in lowered:
                 return city
         return None
 
     def _geocode_city(self, city: str) -> Optional[Dict[str, Any]]:
-        params = {"q": city, "limit": 1}
+        cache_key = city.lower()
+        if cache_key in self._geo_cache:
+            return self._geo_cache[cache_key]
+        params = {"q": city, "limit": 1, "appid": self.api_key}
         data = self._request(self.GEO_URL, params)
         if data:
             record = data[0]
-            return {
+            normalized = {
                 "name": record.get("name", city),
                 "country": record.get("country"),
                 "lat": record.get("lat"),
                 "lon": record.get("lon"),
             }
+            self._geo_cache[cache_key] = normalized
+            return normalized
         return None
 
     def _fetch_current_weather(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
         params = {"lat": lat, "lon": lon, "units": self.units, "lang": self.lang}
         return self._request(self.CURRENT_URL, params)
 
-    def _fetch_forecast(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
-        params = {"lat": lat, "lon": lon, "units": self.units, "lang": self.lang, "cnt": 8}
-        return self._request(self.FORECAST_URL, params)
+    def _fetch_hourly_forecast(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
+        params = {"lat": lat, "lon": lon, "cnt": 16, "units": self.units, "lang": self.lang}
+        return self._request(self.FORECAST_HOURLY_URL, params)
+
+    def _fetch_daily_forecast(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
+        params = {"lat": lat, "lon": lon, "cnt": 7, "units": self.units, "lang": self.lang}
+        return self._request(self.FORECAST_DAILY_URL, params)
 
     def _fetch_air_quality(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
         params = {"lat": lat, "lon": lon}
         return self._request(self.AIR_URL, params)
 
-    def _extract_current(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _fetch_air_quality_forecast(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
+        params = {"lat": lat, "lon": lon}
+        return self._request(self.AIR_FORECAST_URL, params)
+
+    def _extract_current(self, payload: Dict[str, Any], tz_offset: int) -> Dict[str, Any]:
         weather = (payload.get("weather") or [{}])[0]
         wind = payload.get("wind") or {}
         main = payload.get("main") or {}
+        sunrise = (payload.get("sys") or {}).get("sunrise")
+        sunset = (payload.get("sys") or {}).get("sunset")
         return {
             "description": weather.get("description"),
             "temperature": main.get("temp"),
@@ -136,29 +193,58 @@ class WeatherAPIHandler(BaseAPIHandler):
             "wind_speed": wind.get("speed"),
             "wind_direction": wind.get("deg"),
             "visibility": payload.get("visibility"),
-            "sunrise": (payload.get("sys") or {}).get("sunrise"),
-            "sunset": (payload.get("sys") or {}).get("sunset"),
+            "sunrise": sunrise,
+            "sunrise_local": self._format_time(sunrise, tz_offset),
+            "sunset": sunset,
+            "sunset_local": self._format_time(sunset, tz_offset),
             "timestamp": payload.get("dt"),
+            "timestamp_local": self._format_time(payload.get("dt"), tz_offset, "%Y-%m-%d %H:%M"),
         }
 
-    def _extract_forecast(self, payload: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _extract_hourly_forecast(self, payload: Optional[Dict[str, Any]], tz_offset: int) -> List[Dict[str, Any]]:
         if not payload:
             return []
         entries = payload.get("list") or []
-        highlights = []
-        for item in entries[:4]:
+        highlights: List[Dict[str, Any]] = []
+        for item in entries[:16]:
             weather = (item.get("weather") or [{}])[0]
             main = item.get("main") or {}
             highlights.append(
                 {
                     "time": item.get("dt"),
+                    "time_local": self._format_time(item.get("dt"), tz_offset, "%m-%d %H:%M"),
                     "temperature": main.get("temp"),
+                    "feels_like": main.get("feels_like"),
                     "description": weather.get("description"),
                     "humidity": main.get("humidity"),
                     "wind_speed": (item.get("wind") or {}).get("speed"),
+                    "precip_probability": item.get("pop"),
                 }
             )
         return highlights
+
+    def _extract_daily_forecast(self, payload: Optional[Dict[str, Any]], tz_offset: int) -> List[Dict[str, Any]]:
+        if not payload:
+            return []
+        entries = payload.get("list") or []
+        days: List[Dict[str, Any]] = []
+        for item in entries[:5]:
+            weather = (item.get("weather") or [{}])[0]
+            temps = item.get("temp") or {}
+            days.append(
+                {
+                    "date": self._format_time(item.get("dt"), tz_offset, "%Y-%m-%d"),
+                    "temp_min": temps.get("min"),
+                    "temp_max": temps.get("max"),
+                    "temp_day": temps.get("day"),
+                    "temp_night": temps.get("night"),
+                    "description": weather.get("description"),
+                    "wind_speed": item.get("speed"),
+                    "humidity": item.get("humidity"),
+                    "pop": item.get("pop"),
+                }
+            )
+        return days
 
     def _extract_air_quality(self, payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         if not payload:
@@ -170,39 +256,162 @@ class WeatherAPIHandler(BaseAPIHandler):
         components = records[0].get("components") or {}
         return {
             "aqi": main.get("aqi"),
+            "category": self._map_aqi(main.get("aqi")),
             "components": components,
             "timestamp": records[0].get("dt"),
         }
+
+    def _extract_air_forecast(self, payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not payload:
+            return None
+        entries = payload.get("list") or []
+        for item in entries:
+            main = item.get("main") or {}
+            if main.get("aqi"):
+                return {
+                    "aqi": main.get("aqi"),
+                    "category": self._map_aqi(main.get("aqi")),
+                    "timestamp": item.get("dt"),
+                    "components": item.get("components"),
+                }
+        return None
 
     def _build_summary(
         self,
         city: str,
         current: Dict[str, Any],
-        forecast: List[Dict[str, Any]],
+        hours: List[Dict[str, Any]],
+        days: List[Dict[str, Any]],
         air_quality: Optional[Dict[str, Any]],
+        advisories: List[str],
+        time_scope: Optional[str],
     ) -> str:
-        desc = current.get("description") or "天气数据"
-        temp = current.get("temperature")
-        humidity = current.get("humidity")
+        parts = [
+            f"{city}当前{current.get('description') or '天气情况'}，"
+            f"气温 {self._format_value(current.get('temperature'), '°C')}，"
+            f"体感 {self._format_value(current.get('feels_like'), '°C')}，"
+            f"湿度 {self._format_value(current.get('humidity'), '%')}，"
+            f"风速 {self._format_value(current.get('wind_speed'), 'm/s')}。"
+        ]
+        if current.get("sunrise_local") and current.get("sunset_local"):
+            parts.append(f"日出 {current['sunrise_local']}，日落 {current['sunset_local']}。")
+
+        slot = self._select_hourly_slot(hours, time_scope)
+        if slot:
+            parts.append(
+                f"{self._describe_period(time_scope)}（{slot.get('time_local')}）"
+                f"{slot.get('description') or ''}，温度 {self._format_value(slot.get('temperature'), '°C')}"
+                + (f"，降水概率 {int((slot.get('precip_probability') or 0) * 100)}%" if slot.get("precip_probability") is not None else "")
+            )
+
+        if days:
+            tomorrow = days[0]
+            parts.append(
+                f"明日 {tomorrow['date']} 预计 {tomorrow.get('description', '')}，"
+                f"温度 {self._format_value(tomorrow.get('temp_min'), '°C')}~{self._format_value(tomorrow.get('temp_max'), '°C')}。"
+            )
+
+        if air_quality:
+            parts.append(f"空气质量 {air_quality.get('category')}（AQI {air_quality.get('aqi')}）。")
+
+        if advisories:
+            parts.append("提示：" + "；".join(advisories) + "。")
+
+        return "".join(parts)
+
+    def _format_value(self, value: Optional[float], unit: str) -> str:
+        if value is None:
+            return "—"
+        try:
+            return f"{round(float(value), 1)}{unit}"
+        except Exception:
+            return f"{value}{unit}"
+
+    def _format_time(self, ts: Optional[int], tz_offset: int, fmt: str = "%H:%M") -> Optional[str]:
+        if ts is None:
+            return None
+        try:
+            dt = datetime.utcfromtimestamp(ts + tz_offset)
+            return dt.strftime(fmt)
+        except Exception:
+            return None
+
+    def _infer_time_scope(self, query: str, metadata: Optional[Dict[str, Any]]) -> Optional[str]:
+        if metadata:
+            scope = (metadata.get("entities") or {}).get("time_scope")
+            if isinstance(scope, str):
+                return scope.lower()
+        lowered = query.lower()
+        if any(word in lowered for word in ["tomorrow", "明天", "翌日"]):
+            return "tomorrow"
+        if any(word in lowered for word in ["afternoon", "下午"]):
+            return "afternoon"
+        if any(word in lowered for word in ["evening", "tonight", "今晚", "晚上"]):
+            return "evening"
+        if any(word in lowered for word in ["sunset", "日落"]):
+            return "sunset"
+        if any(word in lowered for word in ["sunrise", "日出"]):
+            return "sunrise"
+        return None
+
+    def _select_hourly_slot(self, hours: List[Dict[str, Any]], time_scope: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not hours:
+            return None
+        if not time_scope:
+            return hours[0]
+
+        def hour_of(entry: Dict[str, Any]) -> Optional[int]:
+            try:
+                return datetime.utcfromtimestamp(entry["time"]).hour
+            except Exception:
+                return None
+
+        ranges = {
+            "afternoon": range(12, 18),
+            "evening": range(18, 24),
+            "sunrise": range(5, 8),
+            "sunset": range(17, 20),
+        }
+
+        target_range = ranges.get(time_scope)
+        if target_range:
+            for entry in hours:
+                hour = hour_of(entry)
+                if hour in target_range:
+                    return entry
+        if time_scope == "tomorrow" and len(hours) > 8:
+            return hours[8]
+        return hours[0]
+
+    def _describe_period(self, time_scope: Optional[str]) -> str:
+        mapping = {
+            "afternoon": "下午",
+            "evening": "傍晚",
+            "sunrise": "日出时段",
+            "sunset": "日落时段",
+            "tomorrow": "明日",
+        }
+        return mapping.get(time_scope or "", "稍后")
+
+    def _deduce_advisories(
+        self,
+        current: Dict[str, Any],
+        hours: List[Dict[str, Any]],
+        air_quality: Optional[Dict[str, Any]],
+    ) -> List[str]:
+        advisories: List[str] = []
         wind = current.get("wind_speed")
-        pieces = [f"{city}当前{desc}"]
-        if temp is not None:
-            pieces.append(f"气温 {temp}°C")
-        if humidity is not None:
-            pieces.append(f"湿度 {humidity}%")
-        if wind is not None:
-            pieces.append(f"风速 {wind} m/s")
-        if forecast:
-            next_desc = forecast[0].get("description")
-            next_temp = forecast[0].get("temperature")
-            if next_desc or next_temp is not None:
-                pieces.append(
-                    f"未来几小时预计 {next_desc or '天气变化'}"
-                    + (f"，温度约 {next_temp}°C" if next_temp is not None else "")
-                )
-        if air_quality and air_quality.get("aqi"):
-            pieces.append(f"空气质量指数 AQI={air_quality['aqi']}")
-        return "，".join(pieces)
+        if isinstance(wind, (int, float)) and wind >= 15:
+            advisories.append("有较强阵风，户外活动请注意防风")
+        if any("雨" in (h.get("description") or "") for h in hours[:4]):
+            advisories.append("短时可能有降水，出门携带雨具")
+        if air_quality and air_quality.get("aqi") and air_quality["aqi"] >= 4:
+            advisories.append("空气质量偏差，敏感人群减少户外活动")
+        return advisories
+
+    def _map_aqi(self, value: Optional[int]) -> str:
+        mapping = {1: "优", 2: "良", 3: "中等", 4: "较差", 5: "严重"}
+        return mapping.get(value, "未知")
 
 
 
