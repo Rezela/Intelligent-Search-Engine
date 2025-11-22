@@ -2,6 +2,7 @@ import json
 import time
 import logging
 from typing import Tuple
+import json
 from api import HKGAIClient
 from retrieve import chromadb_retrieve
 from rerank import rerank
@@ -24,10 +25,58 @@ def make_rag_prompt(query: str, context: str) -> Tuple[str, str]:
     return system, user
 
 # 调用 API 的 prompt 构造
-def make_api_prompt(query: str, context: str) -> Tuple[str, str]:
-    system = "You are a helpful assistant." \
-             "Use the provided API result as the authoritative source to answer the question."
-    user = f"User asked:\n{query}\n\nAPI result:\n{context}\n\nAnswer clearly and concisely."
+def _format_api_context(context):
+    if isinstance(context, dict):
+        lines = []
+        summary = context.get("summary")
+        if summary:
+            lines.append(summary)
+
+        location = context.get("location")
+        if location:
+            loc_desc = f"{location.get('name')} ({location.get('lat')}, {location.get('lon')})"
+            lines.append(f"位置: {loc_desc}")
+
+        current = context.get("current") or {}
+        temp = current.get("temperature")
+        humidity = current.get("humidity")
+        if temp is not None or humidity is not None:
+            lines.append(
+                f"当前温度 {temp}°C, 湿度 {humidity}%" if humidity is not None else f"当前温度 {temp}°C"
+            )
+
+        forecast = context.get("forecast") or []
+        if forecast:
+            first = forecast[0]
+            lines.append(
+                f"短期预报: {first.get('description')}，温度 {first.get('temperature')}°C"
+            )
+
+        air = context.get("air_quality") or {}
+        if air and air.get("aqi"):
+            lines.append(f"空气质量指数 AQI={air['aqi']}")
+
+        return "\n".join(lines) or json.dumps(context, ensure_ascii=False)
+    return str(context)
+
+
+def _stringify_context(context):
+    if isinstance(context, dict):
+        return json.dumps(context, ensure_ascii=False, indent=2)
+    return str(context)
+
+
+def make_api_prompt(query: str, context) -> Tuple[str, str]:
+    formatted_context = _format_api_context(context)
+    system = (
+        "You are a helpful assistant. Use the provided API result as the authoritative source. "
+        "Do not hallucinate data that is not included."
+    )
+    user = (
+        f"User asked:\n{query}\n\n"
+        f"API summary:\n{formatted_context}\n\n"
+        "Answer clearly and concisely."
+    )
     return system, user
 
 class FullRAG:
@@ -61,7 +110,7 @@ class FullRAG:
             logging.info("==== New Query ====")
             logging.info(f"Query: {user_query}")
             logging.info(f"Source: {source}")
-            logging.info(f"API Context: {context}")
+            logging.info(f"API Context: {_stringify_context(context)}")
             logging.info(f"LLM Answer: {result['content']}")
             logging.info(f"Times [api={api_source_time:.3f}s]")
 
@@ -124,7 +173,6 @@ class FullRAG:
             }
         }
 
-
 if __name__ == "__main__":
     from DB import get_db
 
@@ -170,7 +218,7 @@ if __name__ == "__main__":
             print(result["answer"])
         else:
             print("\n=== API Result ===")
-            print(result.get("context", ""))
+            print(_stringify_context(result.get("context", "")))
             print("\n=== Answer ===")
             print(result.get("answer", ""))
 
