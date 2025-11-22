@@ -36,6 +36,15 @@ INTENT_DEFINITIONS: List[Dict[str, Any]] = [
         ],
     },
     {
+        "name": "google_search_api",
+        "description": "需要查询互联网的最新资讯、长尾事实或未知实体背景，例如“最新新闻”“网上资料”。",
+        "required_entities": ["search_query"],
+        "example_queries": [
+            "今天关于OpenAI的最新新闻",
+            "帮我找一下VisionPro的最新评测"
+        ],
+    },
+    {
         "name": "rag",
         "description": "上述类别都不匹配时，默认交给本地知识库 RAG 管线处理。",
         "required_entities": [],
@@ -47,7 +56,7 @@ INTENT_DEFINITIONS: List[Dict[str, Any]] = [
 
 SCHEMA_DESCRIPTION = json.dumps(
     {
-        "intent": "string，必须是 weather_api / traffic_api / finance_api / rag 之一",
+        "intent": "string，必须是 weather_api / traffic_api / finance_api / google_search_api / rag 之一",
         "confidence": "float，取值 0-1，代表模型对该 intent 的置信度",
         "reason": "string，20 字以内解释判定依据",
         "entities": {
@@ -55,6 +64,8 @@ SCHEMA_DESCRIPTION = json.dumps(
             "origin": "string or null，交通起点",
             "destination": "string or null，交通终点",
             "ticker": "string or null，金融问题中的股票或资产代码/名称",
+            "search_query": "string or null，Google 搜索需要使用的查询词",
+            "site": "string or null，若用户限制特定网站，则给出域名",
         },
     },
     ensure_ascii=False,

@@ -3,6 +3,7 @@ import googlemaps
 import re
 import yfinance as yf
 
+import os
 from dotenv import load_dotenv
 
 # 加载 .env 文件
@@ -20,7 +21,7 @@ class BaseAPIHandler:
 # 天气 API
 class WeatherAPIHandler(BaseAPIHandler):
     def __init__(self):
-        self.api_key = "WEATHER_API_KEY"
+        self.api_key = os.getenv("WEATHER_API_KEY")
 
     def extract_city(self, query: str) -> str:
         """
@@ -75,7 +76,7 @@ class WeatherAPIHandler(BaseAPIHandler):
 # 交通 API
 class TrafficAPIHandler(BaseAPIHandler):
     def __init__(self):
-        self.client = googlemaps.Client(key="TRAFFIC_API_KEY")
+        self.client = googlemaps.Client(key=os.getenv("TRAFFIC_API_KEY"))
     def parse_locations(self, query: str):
         """
         使用正则表达式解析 query 中的起点和终点
@@ -171,117 +172,72 @@ class FinanceAPIHandler(BaseAPIHandler):
 
 
 
-class PublicServiceAPIHandler(BaseAPIHandler):
-    def __init__(self):
-        self.api_key = "PUBLIC_SERVICE_API_KEY"  # 无需密钥
-        # 服务类别映射表
-        self.service_map = {
-            "library_card": ["图书馆卡", "library card", "公共图书馆"],
-            "passport": ["护照", "passport", "特区护照"],
-            "octopus": ["八达通", "Octopus", "遗失", "挂失"],
-            "hospital_visiting": ["医院探访", "visiting hours", "探病"],
-            "emergency_info": ["报警电话", "emergency number", "police"],
-            "health_insurance": ["VHIS", "自愿医保", "健康保险"],
-            "mpf": ["MPF", "强积金", "公积金"],
-            "small_claims": ["小额钱债", "Small Claims Tribunal"],
-            "library_closure": ["图书馆关闭", "library closure", "台风信号"],
-            "minimum_wage": ["最低工资", "minimum wage"],
-            "driving_license": ["驾驶执照", "renew license"],
-            "school_closure": ["停课", "school suspended"],
-            "border_control": ["口岸开放", "Lo Wu", "管制站"],
-            "road_closure": ["道路封闭", "road closure"],
-            "pharmacy": ["药房", "pharmacy", "24小时"],
-            "marathon": ["马拉松", "marathon"],
-            "theme_park_policy": ["海洋公园", "Ocean Park", "门票延长"]
-        }
 
-    def classify_service(self, query: str) -> str:
-        """根据关键词匹配服务类别"""
-        for service, keywords in self.service_map.items():
-            if any(keyword in query for keyword in keywords):
-                return service
-        return None
+
+# Google Search API
+class GoogleSearchAPIHandler(BaseAPIHandler):
+    ENDPOINT = "https://customsearch.googleapis.com/customsearch/v1"
+    RECENT_KEYWORDS = ["最新", "今天", "今日", "近期", "最近", "news", "latest", "today"]
+
+    def __init__(self):
+        self.api_key = os.getenv("GOOGLESEARCH_API_KEY")
+        self.engine_id = os.getenv("GOOGLESEARCH_ENGINE_ID")
+        self.session = requests.Session()
+
+    def _format_items(self, items):
+        lines = []
+        for idx, item in enumerate(items[:5], 1):
+            title = item.get("title") or "无标题"
+            link = item.get("link") or ""
+            snippet = (item.get("snippet") or "").replace("\n", " ")
+            snippet = re.sub(r"\s+", " ", snippet).strip()
+            lines.append(f"[{idx}] {title}\n链接: {link}\n摘要: {snippet}")
+        return "\n\n".join(lines)
 
     def handle(self, query: str) -> str:
-        service = self.classify_service(query)
-        if not service:
-            return "未能识别公共服务类别，请输入具体问题，例如 '如何申请图书馆卡'。"
+        if not self.api_key or not self.engine_id:
+            return "Google Search API 未配置，请设置 GOOGLESEARCH_API_KEY 及 GOOGLESEARCH_ENGINE_ID。"
 
-        # 固定知识类
-        if service == "library_card":
-            return "香港公共图书馆卡申请：携带身份证或护照到任意公共图书馆服务柜台办理。"
-        elif service == "passport":
-            return "香港特别行政区护照申请：需提交身份证、出生证明及相关表格，可在入境事务处递交。"
-        elif service == "octopus":
-            return "遗失八达通卡：可拨打八达通热线或通过 Octopus App 报失，并申请补发。"
-        elif service == "emergency_info":
-            return "香港报警/紧急电话：999。"
-        elif service == "health_insurance":
-            return "香港自愿医保计划 (VHIS)：政府推出的自愿性医疗保险计划，提供标准化保障。"
-        elif service == "mpf":
-            return "MPF 即强制性公积金计划，是香港的退休保障制度。"
-        elif service == "small_claims":
-            return "香港小额钱债审裁处的最高索偿额为 75,000 港元。"
-        elif service == "minimum_wage":
-            return "香港法定最低工资为每小时 40 港元（最新标准）。"
-        elif service == "driving_license":
-            return "续领驾驶执照需提交身份证、旧驾驶执照及相关申请表格。"
-        elif service == "theme_park_policy":
-            return "海洋公园门票在台风日可延长有效期，详情以官方公告为准。"
+        params = self._build_params(query)
 
-        # 动态数据类（真实 API 调用）
-        elif service == "hospital_visiting":
-            url = "https://www.ha.org.hk/opendata/hospital-visiting-hours.json"
-            resp = requests.get(url).json()
-            if resp:
-                return f"香港公立医院探访时间示例：{resp[0]['visiting_hours']}"
-            return "未能获取医院探访时间。"
+        try:
+            response = self.session.get(self.ENDPOINT, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+        except requests.RequestException as exc:
+            return f"Google Search API 请求失败：{exc}"
 
-        elif service == "library_closure":
-            url = "https://www.hkpl.gov.hk/opendata/library-opening-hours.json"
-            resp = requests.get(url).json()
-            if resp:
-                return f"公共图书馆开放时间示例：{resp[0]['opening_hours']}"
-            return "未能获取图书馆开放信息。"
+        items = data.get("items") or []
+        if not items:
+            return "Google Search 未找到相关结果。"
 
-        elif service == "school_closure":
-            url = "https://www.edb.gov.hk/opendata/school-closure.json"
-            resp = requests.get(url).json()
-            if resp and "status" in resp[0]:
-                return f"香港学校当前状态：{resp[0]['status']}"
-            return "未能获取学校停课信息。"
+        return self._format_items(items)
 
-        elif service == "border_control":
-            url = "https://www.immd.gov.hk/opendata/control-point-opening-hours.json"
-            resp = requests.get(url).json()
-            if resp:
-                return f"罗湖管制站开放时间示例：{resp[0]['opening_time']}"
-            return "未能获取口岸开放时间。"
+    def _build_params(self, query: str) -> dict:
+        params = {
+            "key": self.api_key,
+            "cx": self.engine_id,
+            "q": query,
+            "num": 5,
+            "hl": "zh-CN",
+            "safe": "active",
+        }
 
-        elif service == "road_closure":
-            url = "https://data.td.gov.hk/opendata/road-closure.json"
-            resp = requests.get(url).json()
-            if resp:
-                closures = [c['location'] for c in resp]
-                return "当前道路封闭情况：" + ", ".join(closures[:3])
-            return "未能获取道路封闭信息。"
+        lowered = query.lower()
+        if any(keyword in query for keyword in self.RECENT_KEYWORDS):
+            params["sort"] = "date"
+            params["dateRestrict"] = "d7"
+        elif "本周" in query or "近一周" in query:
+            params["dateRestrict"] = "d7"
+            params["sort"] = "date"
+        elif "本月" in query or "近一月" in query:
+            params["dateRestrict"] = "m1"
+            params["sort"] = "date"
+        elif "今年" in query or "year" in lowered:
+            params["dateRestrict"] = "y1"
+            params["sort"] = "date"
 
-        elif service == "pharmacy":
-            url = "https://data.gov.hk/opendata/pharmacy.json"
-            resp = requests.get(url).json()
-            if resp:
-                return f"最近的 24 小时药房示例：{resp[0]['name']}，地址：{resp[0]['address']}"
-            return "未能获取药房信息。"
-
-        elif service == "marathon":
-            url = "https://data.gov.hk/opendata/hk-marathon.json"
-            resp = requests.get(url).json()
-            if resp and "date" in resp[0]:
-                return f"香港马拉松日期：{resp[0]['date']}"
-            return "未能获取马拉松日期。"
-
-        else:
-            return "该公共服务暂未支持，请使用 RAG 查询。"
+        return params
 
 
 # 股票别名映射表（可扩展）
@@ -302,14 +258,7 @@ HANDLERS = {
     "weather_api": WeatherAPIHandler(),
     "traffic_api": TrafficAPIHandler(),
     "finance_api": FinanceAPIHandler(),
-    "public_service_api": PublicServiceAPIHandler(),
-    # "holiday_api": HolidayAPIHandler(),
-    # "facility_api": FacilityAPIHandler(),
-    # "medical_api": MedicalAPIHandler(),
-    # "entertainment_api": EntertainmentAPIHandler(),
-    # "education_api": EducationAPIHandler(),
-    # "emergency_api": EmergencyAPIHandler(),
-    # "knowledge_api": KnowledgeAPIHandler(),
-    # "rag": RAGHandler()
+    "google_search_api": GoogleSearchAPIHandler(),
+
 }
 

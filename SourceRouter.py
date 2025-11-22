@@ -14,6 +14,10 @@ ROUTING_RULES = {
         "keywords": ["股票", "股价", "基金", "指数", "恒生指数", "货币", "汇率", "外汇", "美元", "人民币", "港币", "收盘价", "行情", "coin", "crypto", "比特币", "以太坊", "market", "finance"],
         "api": "finance_api",
     },
+    "google_search": {
+        "keywords": ["google", "搜索", "网上资料", "最新消息", "新闻", "报道", "资讯", "网上查一下"],
+        "api": "google_search_api",
+    },
 }
 
 

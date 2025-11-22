@@ -144,11 +144,11 @@ if __name__ == "__main__":
 
     # 测试不同 query
     queries = [
-        "哆啦A梦使用的3个秘密道具分别是什么？",   # RAG
-        "北京今天的天气情况",                   # Weather API
-        "科大到中环要多久",                      # Traffic API
-        "中国石化今天的收盘价是多少",             # Finance API
-        
+        # "哆啦A梦使用的3个秘密道具分别是什么？",   # RAG
+        # "北京今天的天气情况",                   # Weather API
+        # "科大到中环要多久",                      # Traffic API
+        # "中国石化今天的收盘价是多少",             # Finance API
+        "今天关于OpenAI的最新新闻",               # Google Search API
 
     ]
 
@@ -157,12 +157,7 @@ if __name__ == "__main__":
         print(q)
         result = rag.query(q, language="Chinese")
 
-        if result["source"] in ["weather_api", "traffic_api", "finance_api", "public_service_api"]:
-            print("\n=== API Result ===")
-            print(result["context"])
-            print("\n=== Answer ===")
-            print(result["answer"])
-        else:
+        if "retrieved" in result and "reranked" in result:
             print("\n=== Retrieved ===")
             for i, (chunk, score) in enumerate(result["retrieved"], 1):
                 print(f"[{i}] (retrieval_score={score:.3f}) {chunk}")
@@ -173,6 +168,11 @@ if __name__ == "__main__":
 
             print("\n=== Answer ===")
             print(result["answer"])
+        else:
+            print("\n=== API Result ===")
+            print(result.get("context", ""))
+            print("\n=== Answer ===")
+            print(result.get("answer", ""))
 
         print("\n=== Timing ===")
         for k, v in result["timing"].items():
