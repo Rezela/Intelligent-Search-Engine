@@ -1,7 +1,7 @@
 import json
 import time
 import logging
-from typing import Tuple
+from typing import Tuple, Optional
 import json
 from api import GeminiClient
 from retrieve import chromadb_retrieve
@@ -185,11 +185,26 @@ class FullRAG:
         self.intent_classifier = LLMIntentClassifier(client=self.llm_client)
         self.router = SourceRouter(intent_classifier=self.intent_classifier)
 
-    def query(self, user_query: str, language: str = "Chinese", top_k: int = 5):
+    def query(
+        self,
+        user_query: str,
+        language: str = "Chinese",
+        top_k: int = 5,
+        image_data: Optional[str] = None,
+    ):
         # Step 0: 智能源选择
         t0 = time.time()
-        source = self.router.route(user_query)
+        source = self.router.route(user_query, image_data=image_data)
         intent_snapshot = self.intent_classifier.last_result
+
+        if image_data and source == "image_analysis_api":
+            intent_snapshot = {
+                "intent": "image_analysis_api",
+                "confidence": 1.0,
+                "reason": "image_data_provided",
+                "entities": {},
+            }
+            self.intent_classifier.last_result = intent_snapshot
         if intent_snapshot:
             try:
                 logging.info(
@@ -200,7 +215,12 @@ class FullRAG:
                 logging.info("Intent Result (non-serializable): %s", intent_snapshot)
 
         if source in HANDLERS:
-            context = HANDLERS[source].handle(user_query, metadata=intent_snapshot)
+            metadata = dict(intent_snapshot) if isinstance(intent_snapshot, dict) else {}
+            if image_data:
+                metadata = metadata.copy()
+                metadata["image_data"] = image_data
+
+            context = HANDLERS[source].handle(user_query, metadata=metadata or None)
             system_prompt, user_prompt = make_api_prompt(user_query, context)
             result = self.llm_client.chat(system_prompt, user_prompt)
             t1 = time.time()

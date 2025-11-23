@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 
 ROUTING_RULES = {
@@ -40,6 +41,21 @@ ROUTING_RULES = {
         "keywords": ["google", "搜索", "网上资料", "最新消息", "新闻", "报道", "资讯", "网上查一下"],
         "api": "google_search_api",
     },
+    "image_analysis": {
+        "keywords": [
+            "图片",
+            "相片",
+            "照片",
+            "截图",
+            "截圖",
+            "图像",
+            "圖像",
+            "screenshot",
+            "image",
+            "photo",
+        ],
+        "api": "image_analysis_api",
+    },
 }
 
 
@@ -60,7 +76,9 @@ class SourceRouter:
             "熱帶氣旋信號",
         ]
 
-    def route(self, query: str):
+    def route(self, query: str, image_data: Optional[str] = None):
+        if image_data:
+            return "image_analysis_api"
         lowered = query.lower()
         if any(keyword.lower() in lowered for keyword in self._weather_forced_keywords):
             return "weather_api"

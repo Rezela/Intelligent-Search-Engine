@@ -125,9 +125,17 @@ async def query(request: QueryRequest):
     try:
         # 执行查询
         if request.use_deep_search:
-            result = deep_search_manager.run(request.query, language=request.language)
+            result = deep_search_manager.run(
+                request.query,
+                language=request.language,
+                image_data=request.image_data,
+            )
         else:
-            result = rag_engine.query(request.query, language=request.language)
+            result = rag_engine.query(
+                request.query,
+                language=request.language,
+                image_data=request.image_data,
+            )
         
         # 提取上下文预览
         context_preview = None

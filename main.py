@@ -1,10 +1,31 @@
 import argparse
+import base64
 import json
+from pathlib import Path
 
 from DB import get_db
 from RAG import FullRAG
 from DeepSearch import DeepSearchManager
 from logs import init_logger, new_query_id
+
+
+def load_image_as_data_url(path: str) -> str:
+    file_path = Path(path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"圖像文件不存在: {path}")
+
+    mime_map = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".heic": "image/heic",
+        ".heif": "image/heif",
+    }
+    mime_type = mime_map.get(file_path.suffix.lower(), "image/png")
+
+    encoded = base64.b64encode(file_path.read_bytes()).decode("utf-8")
+    return f"data:{mime_type};base64,{encoded}"
 
 
 def run_queries(language: str):
@@ -19,44 +40,34 @@ def run_queries(language: str):
     deep_search = DeepSearchManager(rag)
 
     queries = [
-        # "哆啦A梦使用的3个秘密道具分别是什么？",  # RAG
-        
-        # "北京今天的天气情况",  # Weather API
-        # "What's the weather forecast for this afternoon in Hong Kong?",
-        # "Will it rain in Shenzhen tomorrow?",
-        # "What is the temperature in Beijing right now?",
-        # "What time is sunset in Hong Kong today?",
-        # "What is the wind speed in Shanghai?",
-        # "明天广州的空气质量指数是多少？",
-        # "澳門現在的濕度是多少？",
-        # "今天香港的日出時間是幾點？",
-        # "Is an evening run in Mong Kok today advisable?",
-
-        # "香港天文臺現在懸掛的是什麼熱帶氣旋警告信號？",
-        # "香港的公共圖書館在哪個熱帶氣旋警告信號下會關閉？",
-        # "Latest HKO forecast track for nearest tropical cyclone",
-        # "珠海今天的紫外線強度如何？",
-        # "Assess the chance of Typhoon Signal No.8 tonight?",
-        # "Will heavy rain affect Shenzhen Bay Port opening hours?",
-        
-        # "科大到中环要多久",  # Traffic API
-        # "Provide the route from Kennedy Town to Hong Kong International Airport.",
-        "由堅尼地城前往香港國際機場的路線是什麼？",
-        # "What are the departure times for the Bus 91M from Diamond Hill station?",
-        
-        # "中国石化今天的收盘价是多少",  # Finance API
-        # "Provide today’s Hang Seng Index percentage change at close.",
-        # "現時金價是多少？",
-        # "Compare the stock performance of NVIDIA (NVDA) and AMD over the last 5 days and summarize the top 3 reasons…",
-        # "What is the current exchange rate between HKD and JPY, and how much is 50,000 Yen in HKD right now?",
-
-        # "今天关于OpenAI的最新新闻",  # Google Search API
+        {
+            "text": "由堅尼地城前往香港國際機場的路線是什麼？",
+        },
+        {
+            "text": "識別這座雕塑，解釋它的象徵意義，並告訴我它具體位於校園的哪個位置。",
+            "image_path": "test/hkust.png",
+        },
     ]
 
-    for q in queries:
+    for item in queries:
+        if isinstance(item, dict):
+            q = item["text"]
+            image_path = item.get("image_path")
+        else:
+            q = item
+            image_path = None
+
+        image_data = None
+        if image_path:
+            try:
+                image_data = load_image_as_data_url(image_path)
+                print(f"[INFO] 已載入測試圖片: {image_path}")
+            except Exception as exc:
+                print(f"[WARN] 無法載入圖片 {image_path}: {exc}")
+
         print("\n\n=== Query ===")
         print(q)
-        result = deep_search.run(q, language=language)
+        result = deep_search.run(q, language=language, image_data=image_data)
 
         if "retrieved" in result and "reranked" in result:
             print("\n=== Retrieved ===")

@@ -36,7 +36,12 @@ class DeepSearchManager:
         # 如果没有代码块标记，尝试直接返回内容
         return content.strip()
 
-    def run(self, query: str, language: str = "Chinese") -> Dict[str, Any]:
+    def run(
+        self,
+        query: str,
+        language: str = "Chinese",
+        image_data: Optional[str] = None,
+    ) -> Dict[str, Any]:
         attempt_history = []
         strategy = "primary"
         metadata = None
@@ -45,7 +50,11 @@ class DeepSearchManager:
             if strategy == "google":
                 result = self._answer_with_google(query, metadata)
             else:
-                result = self.rag.query(query, language=language)
+                result = self.rag.query(
+                    query,
+                    language=language,
+                    image_data=image_data,
+                )
 
             metadata = getattr(self.rag.intent_classifier, "last_result", None)
             attempt_history.append(
@@ -69,6 +78,9 @@ class DeepSearchManager:
             if strategy == "stop":
                 result["attempt_history"] = attempt_history
                 return result
+
+            # 图像只需在首次主流程中处理一次
+            image_data = None
 
         result["attempt_history"] = attempt_history
         return result

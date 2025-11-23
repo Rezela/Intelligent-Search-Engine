@@ -52,6 +52,15 @@ INTENT_DEFINITIONS: List[Dict[str, Any]] = [
         ],
     },
     {
+        "name": "image_analysis_api",
+        "description": "与上传图片相关的识别、描述或问答需求，通常包含“看看这张图”“这幅照片里”等描述，或伴随图像数据。",
+        "required_entities": [],
+        "example_queries": [
+            "请描述我上传的这张照片",
+            "看看图片里的雕塑代表什么",
+        ],
+    },
+    {
         "name": "rag",
         "description": "上述类别都不匹配时，默认交给本地知识库 RAG 管线处理。",
         "required_entities": [],
@@ -63,7 +72,7 @@ INTENT_DEFINITIONS: List[Dict[str, Any]] = [
 
 SCHEMA_DESCRIPTION = json.dumps(
     {
-        "intent": "string，必须是 weather_api / traffic_api / finance_api / google_search_api / rag 之一",
+        "intent": "string，必须是 weather_api / traffic_api / finance_api / google_search_api / image_analysis_api / rag 之一",
         "confidence": "float，取值 0-1，代表模型对该 intent 的置信度",
         "reason": "string，20 字以内解释判定依据",
         "entities": {
