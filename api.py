@@ -1,7 +1,7 @@
 import os
 import logging
 import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from google.generativeai.types import HarmCategory, HarmBlockThreshold, GenerationConfig
 from dotenv import load_dotenv
 from typing import List, Union, Dict, Any, Optional
 import PIL.Image
@@ -62,47 +62,85 @@ class GeminiClient:
             system_instruction=system_instruction
         )
 
-    def generate_content(self, contents: Union[str, List[Any]], system_instruction: str = None) -> Dict[str, Any]:
+    def generate_content(self, contents: Union[str, List[Any]], system_instruction: str = None, max_tokens: int = None, temperature: float = None) -> Dict[str, Any]:
         """
         [多模态] 通用生成接口 (单轮)
         支持纯文本、图片、或 文本+图片 混合输入
         :param contents: 可以是字符串，或者包含 [str, PIL.Image, ...] 的列表
+        :param max_tokens: 最大输出token数
+        :param temperature: 温度参数 (0.0-1.0)
         """
         try:
             model = self._init_model(system_instruction)
-            response = model.generate_content(
-                contents,
-                safety_settings=self.safety_settings
-            )
+            
+            # 构建 generation_config
+            generation_config = None
+            if max_tokens is not None or temperature is not None:
+                generation_config = genai.types.GenerationConfig()
+                if max_tokens is not None:
+                    generation_config.max_output_tokens = max_tokens
+                if temperature is not None:
+                    generation_config.temperature = temperature
+            
+            # 调用 API
+            kwargs = {
+                "contents": contents,
+                "safety_settings": self.safety_settings
+            }
+            if generation_config:
+                kwargs["generation_config"] = generation_config
+                
+            response = model.generate_content(**kwargs)
             return self._parse_response(response)
         except Exception as e:
             logging.error(f"Generate Content 失败: {e}")
             return {"content": "", "error": str(e)}
 
-    def chat_with_history(self, message: Union[str, List[Any]], history: List[Dict[str, Any]] = [], system_instruction: str = None) -> Dict[str, Any]:
+    def chat_with_history(self, message: Union[str, List[Any]], history: List[Dict[str, Any]] = [], system_instruction: str = None, max_tokens: int = None, temperature: float = None) -> Dict[str, Any]:
         """
         [多轮对话] 聊天接口
         :param message: 当前用户的新消息 (文本或多模态)
         :param history: 历史消息列表，格式需符合 Gemini 标准 [{'role': 'user'|'model', 'parts': [...]}]
+        :param max_tokens: 最大输出token数
+        :param temperature: 温度参数 (0.0-1.0)
         """
         try:
             model = self._init_model(system_instruction)
             chat_session = model.start_chat(history=history)
-            response = chat_session.send_message(
-                message,
-                safety_settings=self.safety_settings
-            )
+            
+            # 构建 generation_config
+            kwargs = {
+                "message": message,
+                "safety_settings": self.safety_settings
+            }
+            if max_tokens is not None or temperature is not None:
+                generation_config = genai.types.GenerationConfig()
+                if max_tokens is not None:
+                    generation_config.max_output_tokens = max_tokens
+                if temperature is not None:
+                    generation_config.temperature = temperature
+                kwargs["generation_config"] = generation_config
+                
+            response = chat_session.send_message(**kwargs)
             return self._parse_response(response)
         except Exception as e:
             logging.error(f"Chat Session 失败: {e}")
             return {"content": "", "error": str(e)}
 
-    def chat(self, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+    # 这里的参数定义必须明确包含 max_tokens 和 temperature
+    def chat(self, system_prompt: str, user_prompt: str, max_tokens: int = None, temperature: float = None) -> Dict[str, Any]:
         """
         [兼容旧接口] 简单的单轮文本对话
         保留此方法以兼容 RAG.py 等旧代码
+        :param max_tokens: 最大输出token数
+        :param temperature: 温度参数 (0.0-1.0)
         """
-        return self.generate_content(contents=user_prompt, system_instruction=system_prompt)
+        return self.generate_content(
+            contents=user_prompt, 
+            system_instruction=system_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature
+        )
 
     def _parse_response(self, response) -> Dict[str, Any]:
         """统一解析 Gemini 响应"""
