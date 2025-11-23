@@ -389,6 +389,52 @@
             .suggestion-grid { grid-template-columns: 1fr; }
             .message-bubble { max-width: 95%; }
         }
+
+        /* 图片预览相关样式 */
+        .image-preview-container {
+            margin-bottom: 12px;
+            padding: 12px;
+            background: var(--chat-bg);
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .image-preview {
+            position: relative;
+            display: inline-block;
+            max-width: 200px;
+            max-height: 200px;
+        }
+
+        .image-preview img {
+            width: 100%;
+            height: auto;
+            border-radius: 12px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .remove-image-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #ff4444;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: var(--shadow-float);
+            transition: all 0.2s ease;
+        }
+
+        .remove-image-btn:hover {
+            background: #cc0000;
+            transform: scale(1.1);
+        }
     </style>
 </head>
 <body>
@@ -443,10 +489,25 @@
             </label>
         </div>
 
+        <!-- 添加图片预览区域 -->
+        <div id="imagePreviewContainer" class="image-preview-container" style="display: none;">
+            <div class="image-preview">
+                <img id="imagePreview" src="" alt="预览图片">
+                <button class="remove-image-btn" onclick="removeImage()" title="删除图片">
+                    <span class="material-icons-round">close</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 修改现有的 input-box -->
         <div class="input-box">
-            <button class="action-btn" title="上传附件 (示例)">
+            <!-- 修改附件按钮为文件输入 -->
+            <input type="file" id="imageUpload" accept="image/*" style="display: none;">
+            <button class="action-btn" title="上传图片" onclick="document.getElementById('imageUpload').click()">
                 <span class="material-icons-round">add_circle_outline</span>
             </button>
+            
+            <!-- 现有的 textarea 和发送按钮 -->
             <textarea 
                 id="queryInput" 
                 placeholder="输入问题..." 
@@ -473,6 +534,7 @@
 
         let sessionId = null;
         let isProcessing = false;
+        let imageData = null; // 添加图片相关变量
 
         // 自动调整输入框高度
         function autoResize(textarea) {
@@ -503,11 +565,55 @@
             }
         }
 
+        // 添加图片上传处理函数
+        function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            // 验证文件类型
+            if (!file.type.startsWith('image/')) {
+                alert('请选择图片文件');
+                return;
+            }
+            
+            // 验证文件大小 (限制为10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                alert('图片文件大小不能超过10MB');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                imageData = e.target.result; // Base64 数据URL格式
+                
+                // 显示预览
+                const previewImg = document.getElementById('imagePreview');
+                const previewContainer = document.getElementById('imagePreviewContainer');
+                
+                previewImg.src = imageData;
+                previewContainer.style.display = 'block';
+                
+                // 更新输入框占位符
+                document.getElementById('queryInput').placeholder = 
+                    imageData ? "描述这张图片或提出问题..." : "输入问题...";
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function removeImage() {
+            imageData = null;
+            document.getElementById('imageUpload').value = '';
+            document.getElementById('imagePreviewContainer').style.display = 'none';
+            document.getElementById('queryInput').placeholder = "输入问题...";
+        }
+
         async function sendQuery() {
             const input = document.getElementById('queryInput');
             const query = input.value.trim();
             
-            if (!query || isProcessing) return;
+            // 如果没有文本但有图片，允许发送
+            if (!query && !imageData) return;
+            if (isProcessing) return;
 
             // UI 状态更新
             document.getElementById('welcomeScreen').style.display = 'none';
@@ -515,10 +621,13 @@
             input.disabled = true;
             document.getElementById('sendButton').disabled = true;
 
-            // 添加用户消息
-            appendMessage('user', query);
+            // 添加用户消息 (包含图片)
+            appendMessage('user', query, imageData);
+            
+            // 清空输入
             input.value = '';
             input.style.height = 'auto';
+            removeImage(); // 发送后清除图片
 
             // 添加 Loading 占位符
             const loadingId = appendLoading();
@@ -528,10 +637,11 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        query: query,
+                        query: query || "请分析这张图片", // 如果只有图片，提供默认查询
                         language: 'Chinese',
                         session_id: sessionId,
-                        use_deep_search: document.getElementById('useDeepSearch').checked
+                        use_deep_search: document.getElementById('useDeepSearch').checked,
+                        image_data: imageData // 添加图片数据
                     })
                 });
 
@@ -557,7 +667,7 @@
         }
 
         // 渲染消息
-        function appendMessage(role, text) {
+        function appendMessage(role, content, imageData = null) {
             const container = document.getElementById('chatContent');
             const div = document.createElement('div');
             div.className = `message-row ${role}`;
@@ -575,10 +685,19 @@
             const bubble = document.createElement('div');
             bubble.className = 'message-bubble markdown-body';
             
-            if (role === 'user') {
-                bubble.textContent = text;
-            } else {
-                bubble.innerHTML = marked.parse(text);
+            if (imageData) {
+                // 如果有图片，先显示图片
+                const img = document.createElement('img');
+                img.src = imageData;
+                img.className = 'message-image';
+                img.style.maxWidth = '300px';
+                img.style.borderRadius = '12px';
+                img.style.marginBottom = '8px';
+                bubble.appendChild(img);
+            }
+            
+            if (content) {
+                bubble.textContent = content;
             }
 
             div.appendChild(avatar);
@@ -748,6 +867,11 @@
 
         window.onload = checkHealth;
         setInterval(checkHealth, 30000);
+
+        // 在页面加载时绑定事件
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('imageUpload').addEventListener('change', handleImageUpload);
+        });
     </script>
 </body>
 </html>

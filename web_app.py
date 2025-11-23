@@ -77,6 +77,7 @@ class QueryRequest(BaseModel):
     language: str = "Chinese"
     session_id: Optional[str] = None
     use_deep_search: bool = True
+    image_data: Optional[str] = None  # 添加图片数据字段
 
 
 class QueryResponse(BaseModel):
