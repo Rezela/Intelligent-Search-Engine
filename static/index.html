@@ -1358,6 +1358,13 @@
             document.getElementById('imageUpload').addEventListener('change', handleImageUpload);
             document.getElementById('sidebarToggle').addEventListener('click', () => toggleSidebar());
             document.getElementById('sidePanelOverlay').addEventListener('click', () => toggleSidebar());
+            document.getElementById('docUpload').addEventListener('change', function(event) {
+                const file = event.target.files[0];
+                const label = document.getElementById('uploadFilename');
+                if (label) {
+                    label.textContent = file ? file.name : '未选择文件';
+                }
+            });
         });
     </script>
 </body>
