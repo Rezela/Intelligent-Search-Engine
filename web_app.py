@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from DB import get_db
 from RAG import FullRAG
 from DeepSearch import DeepSearchManager
-from logs import init_logger, new_query_id
+from logs import init_logger, new_query_id, log_user_query, log_assistant_answer
 
 # 全局状态：RAG 引擎和会话管理
 rag_engine: Optional[FullRAG] = None
@@ -32,6 +32,8 @@ async def lifespan(app: FastAPI):
     global rag_engine, deep_search_manager
     
     # 启动时初始化
+    log_file = init_logger("web_app")
+    logging.info("Web logger initialized at %s", log_file)
     logging.info("正在初始化 RAG 引擎...")
     try:
         db = get_db(persistent=True, path="./chroma_db", name="default")
@@ -136,6 +138,14 @@ async def query(request: QueryRequest):
                 language=request.language,
                 image_data=request.image_data,
             )
+
+        log_user_query(
+            source="web_app",
+            query=request.query,
+            session_id=session_id,
+            has_image=bool(request.image_data),
+            extra={"use_deep_search": request.use_deep_search, "source_used": result.get("source")},
+        )
         
         # 提取上下文预览
         context_preview = None
@@ -155,6 +165,15 @@ async def query(request: QueryRequest):
             "source": result.get("source", "unknown"),
             "timestamp": time.time(),
         })
+        
+        log_assistant_answer(
+            source="web_app",
+            answer=result.get("answer", ""),
+            session_id=session_id,
+            timing=result.get("timing"),
+            context_preview=context_preview,
+            attempt_history=result.get("attempt_history"),
+        )
         
         return QueryResponse(
             answer=result.get("answer", ""),

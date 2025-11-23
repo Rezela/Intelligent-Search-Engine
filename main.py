@@ -6,7 +6,7 @@ from pathlib import Path
 from DB import get_db
 from RAG import FullRAG
 from DeepSearch import DeepSearchManager
-from logs import init_logger, new_query_id
+from logs import init_logger, new_query_id, log_user_query
 
 
 def load_image_as_data_url(path: str) -> str:
@@ -68,6 +68,13 @@ def run_queries(language: str):
         print("\n\n=== Query ===")
         print(q)
         result = deep_search.run(q, language=language, image_data=image_data)
+        log_user_query(
+            source="cli",
+            query=q,
+            session_id=query_id,
+            has_image=bool(image_data),
+            extra={"language": language, "source_used": result.get("source")},
+        )
 
         if "retrieved" in result and "reranked" in result:
             print("\n=== Retrieved ===")
