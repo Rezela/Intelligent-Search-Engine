@@ -31,16 +31,17 @@ def run_queries(language: str):
         # "澳門現在的濕度是多少？",
         # "今天香港的日出時間是幾點？",
         # "Is an evening run in Mong Kok today advisable?",
-        "香港天文臺現在懸掛的是什麼熱帶氣旋警告信號？",
-        "香港的公共圖書館在哪個熱帶氣旋警告信號下會關閉？",
-        "Latest HKO forecast track for nearest tropical cyclone",
-        "珠海今天的紫外線強度如何？",
-        "Assess the chance of Typhoon Signal No.8 tonight?",
-        "Will heavy rain affect Shenzhen Bay Port opening hours?",
+
+        # "香港天文臺現在懸掛的是什麼熱帶氣旋警告信號？",
+        # "香港的公共圖書館在哪個熱帶氣旋警告信號下會關閉？",
+        # "Latest HKO forecast track for nearest tropical cyclone",
+        # "珠海今天的紫外線強度如何？",
+        # "Assess the chance of Typhoon Signal No.8 tonight?",
+        # "Will heavy rain affect Shenzhen Bay Port opening hours?",
         
         # "科大到中环要多久",  # Traffic API
         # "Provide the route from Kennedy Town to Hong Kong International Airport.",
-        # "由堅尼地城前往香港國際機場的路線是什麼？",
+        "由堅尼地城前往香港國際機場的路線是什麼？",
         # "What are the departure times for the Bus 91M from Diamond Hill station?",
         
         # "中国石化今天的收盘价是多少",  # Finance API

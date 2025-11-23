@@ -738,7 +738,7 @@ class TrafficAPIHandler(BaseAPIHandler):
         origin, destination = self.parse_locations(query)
 
         if not origin or not destination:
-            return {"error": "未能识别起点和终点，请使用“从A到B”或“route from A to B”的格式。"}
+            return {"error": "未能识别起点和终点，请使用'从A到B'或'route from A to B'的格式。"}
 
         try:
             directions = self.client.directions(

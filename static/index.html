@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FullRAG - 智能问答系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            background: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 900px;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            background: #ffffff;
+            border-bottom: 1px solid #e5e5e5;
+            padding: 16px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+
+        .header .status {
+            font-size: 12px;
+            color: #666;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #22c55e;
+        }
+
+        .status-dot.unhealthy {
+            background: #ef4444;
+        }
+
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            background: #fafafa;
+        }
+
+        .message {
+            display: flex;
+            gap: 12px;
+            animation: fadeIn 0.2s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 500;
+            font-size: 13px;
+            flex-shrink: 0;
+        }
+
+        .message.user .message-avatar {
+            background: #2563eb;
+            color: white;
+        }
+
+        .message.assistant .message-avatar {
+            background: #e5e7eb;
+            color: #4b5563;
+        }
+
+        .message-content {
+            flex: 1;
+            max-width: 75%;
+        }
+
+        .message.user .message-content {
+            text-align: right;
+        }
+
+        .message-bubble {
+            padding: 12px 16px;
+            border-radius: 8px;
+            line-height: 1.6;
+            word-wrap: break-word;
+            font-size: 14px;
+        }
+
+        .message.user .message-bubble {
+            background: #2563eb;
+            color: white;
+        }
+
+        .message.assistant .message-bubble {
+            background: #ffffff;
+            color: #1a1a1a;
+            border: 1px solid #e5e5e5;
+        }
+
+        .message-meta {
+            font-size: 11px;
+            color: #9ca3af;
+            margin-top: 6px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .message.user .message-meta {
+            justify-content: flex-end;
+        }
+
+        .source-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            background: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 500;
+            color: #6b7280;
+        }
+
+        .loading {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            color: #9ca3af;
+            font-size: 13px;
+        }
+
+        .loading-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .loading-dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: #9ca3af;
+            animation: bounce 1.4s infinite;
+        }
+
+        .loading-dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .loading-dot:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
+            40% { transform: translateY(-6px); opacity: 1; }
+        }
+
+        .input-area {
+            border-top: 1px solid #e5e5e5;
+            padding: 16px 20px;
+            background: #ffffff;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        .input-wrapper {
+            flex: 1;
+            position: relative;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            transition: border-color 0.2s;
+            min-height: 40px;
+            max-height: 120px;
+            background: #ffffff;
+            color: #1a1a1a;
+        }
+
+        textarea:focus {
+            border-color: #2563eb;
+        }
+
+        textarea::placeholder {
+            color: #9ca3af;
+        }
+
+        .send-button {
+            padding: 10px 20px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            flex-shrink: 0;
+            height: 40px;
+        }
+
+        .send-button:hover:not(:disabled) {
+            background: #1d4ed8;
+        }
+
+        .send-button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .settings {
+            display: flex;
+            gap: 12px;
+            margin-top: 10px;
+            font-size: 12px;
+        }
+
+        .settings label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #6b7280;
+            cursor: pointer;
+        }
+
+        .settings input[type="checkbox"] {
+            cursor: pointer;
+            width: 14px;
+            height: 14px;
+        }
+
+        .error {
+            background: #fef2f2;
+            color: #991b1b;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            border: 1px solid #fecaca;
+        }
+
+        /* 滚动条样式 */
+        .chat-area::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-area::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .chat-area::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+            border-radius: 3px;
+        }
+
+        .chat-area::-webkit-scrollbar-thumb:hover {
+            background: #9ca3af;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .container {
+                height: 100vh;
+                border-radius: 0;
+            }
+
+            body {
+                padding: 0;
+            }
+
+            .message-content {
+                max-width: 85%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>FullRAG 智能问答</h1>
+            <div class="status">
+                <span class="status-dot" id="status-dot"></span>
+                <span id="status-text">就绪</span>
+            </div>
+        </div>
+
+        <div class="chat-area" id="chatArea">
+            <div class="message assistant">
+                <div class="message-avatar">AI</div>
+                <div class="message-content">
+                    <div class="message-bubble">
+                        你好！我是 FullRAG 智能助手，可以帮你查询：
+                        <br><br>• 天气信息（实时天气、预报、空气质量）
+                        <br>• 交通路线（路径规划、出行时间）
+                        <br>• 金融数据（股票、汇率、金价）
+                        <br>• 网络搜索（最新资讯、事实查询）
+                        <br>• 本地知识库（文档问答）
+                        <br><br>请告诉我你想了解什么？
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <div class="input-container">
+                <div class="input-wrapper">
+                    <textarea 
+                        id="queryInput" 
+                        placeholder="输入你的问题..." 
+                        rows="1"
+                        onkeydown="handleKeyDown(event)"
+                    ></textarea>
+                </div>
+                <button class="send-button" id="sendButton" onclick="sendQuery()">
+                    发送
+                </button>
+            </div>
+            <div class="settings">
+                <label>
+                    <input type="checkbox" id="useDeepSearch" checked>
+                    启用深度搜索（多轮回退）
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let sessionId = null;
+        let isLoading = false;
+
+        // 自动调整文本框高度
+        const textarea = document.getElementById('queryInput');
+        textarea.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        // 回车发送（Shift+Enter 换行）
+        function handleKeyDown(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendQuery();
+            }
+        }
+
+        // 发送查询
+        async function sendQuery() {
+            const input = document.getElementById('queryInput');
+            const query = input.value.trim();
+            
+            if (!query || isLoading) return;
+
+            // 禁用输入
+            isLoading = true;
+            input.disabled = true;
+            document.getElementById('sendButton').disabled = true;
+
+            // 添加用户消息
+            addMessage('user', query);
+            input.value = '';
+            input.style.height = 'auto';
+
+            // 显示加载状态
+            const loadingId = addMessage('assistant', '', true);
+
+            try {
+                const response = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        language: 'Chinese',
+                        session_id: sessionId,
+                        use_deep_search: document.getElementById('useDeepSearch').checked,
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                sessionId = data.session_id;
+
+                // 移除加载消息，添加实际回答
+                removeMessage(loadingId);
+                addMessage('assistant', data.answer, false, data.source, data.timing);
+
+                // 如果有尝试历史，显示详细信息
+                if (data.attempt_history && data.attempt_history.length > 1) {
+                    const attemptsInfo = data.attempt_history.map(a => 
+                        `尝试 #${a.attempt}: ${a.strategy} (来源: ${a.source})`
+                    ).join('\n');
+                    addMessage('assistant', `搜索过程：\n${attemptsInfo}`, false, 'system');
+                }
+
+            } catch (error) {
+                removeMessage(loadingId);
+                addMessage('assistant', `错误：${error.message}`, false, 'error');
+                console.error('Query error:', error);
+            } finally {
+                // 恢复输入
+                isLoading = false;
+                input.disabled = false;
+                document.getElementById('sendButton').disabled = false;
+                input.focus();
+            }
+        }
+
+        // 添加消息到聊天区域
+        function addMessage(role, content, isLoading = false, source = null, timing = null) {
+            const chatArea = document.getElementById('chatArea');
+            const messageId = 'msg-' + Date.now() + '-' + Math.random();
+            const messageDiv = document.createElement('div');
+            messageDiv.id = messageId;
+            messageDiv.className = `message ${role}`;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = role === 'user' ? '你' : 'AI';
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+
+            if (isLoading) {
+                bubble.innerHTML = '<div class="loading"><span>正在思考</span><div class="loading-dots"><span class="loading-dot"></span><span class="loading-dot"></span><span class="loading-dot"></span></div></div>';
+            } else {
+                bubble.textContent = content;
+            }
+
+            contentDiv.appendChild(bubble);
+
+            // 添加元信息（来源、时间等）
+            if (!isLoading && (source || timing)) {
+                const meta = document.createElement('div');
+                meta.className = 'message-meta';
+                
+                if (source && source !== 'error' && source !== 'system') {
+                    const badge = document.createElement('span');
+                    badge.className = 'source-badge';
+                    badge.textContent = getSourceLabel(source);
+                    meta.appendChild(badge);
+                }
+
+                if (timing) {
+                    const totalTime = Object.values(timing).reduce((a, b) => a + b, 0);
+                    const timeSpan = document.createElement('span');
+                    timeSpan.textContent = `⏱ ${totalTime.toFixed(2)}s`;
+                    meta.appendChild(timeSpan);
+                }
+
+                if (meta.children.length > 0) {
+                    contentDiv.appendChild(meta);
+                }
+            }
+
+            messageDiv.appendChild(avatar);
+            messageDiv.appendChild(contentDiv);
+            chatArea.appendChild(messageDiv);
+
+            // 滚动到底部
+            chatArea.scrollTop = chatArea.scrollHeight;
+
+            return messageId;
+        }
+
+        // 移除消息
+        function removeMessage(messageId) {
+            const message = document.getElementById(messageId);
+            if (message) {
+                message.remove();
+            }
+        }
+
+        // 获取来源标签
+        function getSourceLabel(source) {
+            const labels = {
+                'weather_api': '天气',
+                'traffic_api': '交通',
+                'finance_api': '金融',
+                'google_search_api': '搜索',
+                'rag': '知识库',
+                'error': '错误',
+            };
+            return labels[source] || source;
+        }
+
+        // 检查 API 健康状态
+        async function checkHealth() {
+            try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+                const statusText = document.getElementById('status-text');
+                const statusDot = document.getElementById('status-dot');
+                
+                if (data.status === 'healthy') {
+                    statusText.textContent = '系统就绪';
+                    statusDot.classList.remove('unhealthy');
+                } else {
+                    statusText.textContent = '系统异常';
+                    statusDot.classList.add('unhealthy');
+                }
+            } catch (error) {
+                console.error('Health check failed:', error);
+                const statusText = document.getElementById('status-text');
+                const statusDot = document.getElementById('status-dot');
+                statusText.textContent = '连接失败';
+                statusDot.classList.add('unhealthy');
+            }
+        }
+
+        // 页面加载时检查健康状态
+        window.addEventListener('load', () => {
+            checkHealth();
+            setInterval(checkHealth, 30000); // 每30秒检查一次
+        });
+    </script>
+</body>
+</html>
