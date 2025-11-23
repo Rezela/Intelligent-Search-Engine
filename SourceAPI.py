@@ -5,8 +5,12 @@ import yfinance as yf
 from datetime import datetime, timedelta
 
 import os
+import base64
+import io
 from typing import Optional, Dict, Any, List, Tuple
 from dotenv import load_dotenv
+import PIL.Image
+from api import GeminiClient
 
 # 加载 .env 文件
 load_dotenv()
@@ -1303,12 +1307,113 @@ TICKER_MAP = {
     "茅台": "600519.SS"
 }
 
+# 图片分析 API
+class ImageAnalysisAPIHandler(BaseAPIHandler):
+    def __init__(self, client: Optional[GeminiClient] = None):
+        self.client = client or GeminiClient()
+
+    def handle(self, query: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        处理图片分析请求
+        支持 Base64 编码的图片数据
+        """
+        if not metadata or "image_data" not in metadata:
+            return {"error": "未提供图像数据进行分析", "summary": None}
+
+        try:
+            # 解码base64图片数据
+            image_data = metadata["image_data"]
+            if image_data.startswith("data:image/"):
+                # 处理前端传来的 data URL 格式 (data:image/jpeg;base64,...)
+                header, base64_data = image_data.split(",", 1)
+                image_data = base64_data
+
+            # 解码base64
+            image_bytes = base64.b64decode(image_data)
+
+            # 使用PIL处理图片并验证格式
+            image = PIL.Image.open(io.BytesIO(image_bytes))
+
+            # 验证图片格式
+            supported_formats = ['PNG', 'JPEG', 'WEBP', 'HEIC', 'HEIF']
+            if image.format not in supported_formats:
+                return {"error": f"不支持的图片格式: {image.format}。支持的格式: {', '.join(supported_formats)}", "summary": None}
+
+            # 获取MIME类型
+            mime_type = f"image/{image.format.lower()}"
+            if image.format == 'JPEG':
+                mime_type = "image/jpeg"
+            elif image.format == 'PNG':
+                mime_type = "image/png"
+            elif image.format == 'WEBP':
+                mime_type = "image/webp"
+            elif image.format in ['HEIC', 'HEIF']:
+                mime_type = f"image/{image.format.lower()}"
+
+            # 构建分析提示
+            system_prompt = (
+                "你是一个专业的图像分析助手。请详细描述图片内容，"
+                "包括主要对象、场景、颜色、构图等信息。如果用户有具体问题，请直接回答。"
+            )
+
+            # 如果用户有具体问题，使用用户的问题，否则进行通用描述
+            if query and query.strip():
+                user_prompt = f"请分析这张图片并回答以下问题：{query}"
+                analysis_type = "image_qa"
+            else:
+                user_prompt = "请详细描述这张图片的内容。"
+                analysis_type = "image_description"
+
+            # 构建多模态内容：文本 + 图片
+            contents = [user_prompt, image]
+
+            # 调用Gemini进行多模态分析
+            response = self.client.generate_content(
+                contents=contents,
+                system_instruction=system_prompt,
+                max_tokens=1024,  # 设置合理的输出长度限制
+                temperature=0.1   # 保持相对确定性的输出
+            )
+
+            if "error" in response:
+                return {
+                    "error": f"图像分析失败：{response['error']}",
+                    "summary": None,
+                    "analysis_type": analysis_type,
+                    "query": query
+                }
+
+            analysis_result = response.get("content", "")
+
+            return {
+                "summary": analysis_result,
+                "analysis_type": analysis_type,
+                "query": query,
+                "raw": response,
+                "image_info": {
+                    "format": image.format,
+                    "size": image.size,
+                    "mode": image.mode,
+                    "mime_type": mime_type
+                }
+            }
+
+        except Exception as e:
+            logging.error(f"图像分析异常: {e}")
+            return {
+                "error": f"图像分析失败：{str(e)}",
+                "summary": None,
+                "analysis_type": "error"
+            }
+
+
 # Router 维护映射表
 HANDLERS = {
     "weather_api": WeatherAPIHandler(),
     "traffic_api": TrafficAPIHandler(),
     "finance_api": FinanceAPIHandler(),
     "google_search_api": GoogleSearchAPIHandler(),
+    "image_analysis_api": ImageAnalysisAPIHandler(),
 
 }
 

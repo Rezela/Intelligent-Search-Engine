@@ -4,7 +4,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional
 
-from api import HKGAIClient
+from api import GeminiClient
 
 
 TIME_SCOPE_GUIDE = (
@@ -94,13 +94,13 @@ class LLMIntentClassifier:
 
     def __init__(
         self,
-        client: Optional[HKGAIClient] = None,
+        client: Optional[GeminiClient] = None,
         allowed_intents: Optional[List[Dict[str, Any]]] = None,
         confidence_threshold: Optional[float] = None,
         max_retries: int = 2,
         retry_on_low_confidence: bool = True,
     ):
-        self.client = client or HKGAIClient()
+        self.client = client or GeminiClient()
         self.allowed_intents = allowed_intents or INTENT_DEFINITIONS
         self.intent_names = {item["name"] for item in self.allowed_intents}
 

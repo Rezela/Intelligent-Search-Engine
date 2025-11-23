@@ -3,7 +3,7 @@ import time
 import logging
 from typing import Tuple
 import json
-from api import HKGAIClient
+from api import GeminiClient
 from retrieve import chromadb_retrieve
 from rerank import rerank
 from logs import init_logger, new_query_id
@@ -181,7 +181,7 @@ def make_api_prompt(query: str, context) -> Tuple[str, str]:
 class FullRAG:
     def __init__(self, db):
         self.db = db
-        self.llm_client = HKGAIClient()
+        self.llm_client = GeminiClient()
         self.intent_classifier = LLMIntentClassifier(client=self.llm_client)
         self.router = SourceRouter(intent_classifier=self.intent_classifier)
 
