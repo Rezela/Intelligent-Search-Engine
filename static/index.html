@@ -145,8 +145,9 @@
         .message-row {
             display: flex;
             gap: 16px;
-            animation: slideUp 0.3s ease;
+            margin-bottom: 24px;
             width: 100%;
+            animation: slideUp 0.3s ease;
         }
 
         .message-row.user {
@@ -172,18 +173,22 @@
             line-height: 1.6;
             font-size: 15px;
             position: relative;
+            width: fit-content;
         }
 
-        .message-row.user .message-bubble {
-            background: #e8f0fe;
-            color: #1a73e8;
-        }
-
+        .message-row.user .message-bubble,
         .message-row.assistant .message-bubble {
             background: transparent;
             padding: 0;
-            width: 100%;
             color: var(--text-primary);
+        }
+
+        .message-row.user .message-bubble {
+            margin-left: auto;
+        }
+
+        .message-row.assistant .message-bubble {
+            width: 100%;
         }
 
         .message-rich-card {
@@ -191,12 +196,18 @@
             border: 1px solid #e0e3ea;
             border-radius: 20px;
             padding: 16px;
+            display: inline-block;
+            max-width: 520px;
             box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
         }
 
         .message-row.user .message-rich-card {
             background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(59, 130, 246, 0.08));
             border-color: rgba(99, 102, 241, 0.25);
+        }
+
+        .message-rich-card.text-only-card {
+            padding: 18px 20px;
         }
 
         .message-image-card img,
@@ -723,26 +734,36 @@
             const bubble = document.createElement('div');
             bubble.className = 'message-bubble markdown-body';
             
-            if (imageData) {
+            const needsCard = imageData || role === 'user';
+
+            if (needsCard) {
                 const richCard = document.createElement('div');
                 richCard.className = 'message-rich-card';
 
-                const caption = document.createElement('div');
-                caption.className = 'message-image-caption';
-                caption.textContent = '📷 上传的图片';
+                if (!imageData) {
+                    richCard.classList.add('text-only-card');
+                    const caption = document.createElement('div');
+                    caption.className = 'message-image-caption';
+                    caption.textContent = '💬 用户提问';
+                    richCard.appendChild(caption);
+                } else {
+                    const caption = document.createElement('div');
+                    caption.className = 'message-image-caption';
+                    caption.textContent = '📷 上传的图片';
 
-                const img = document.createElement('img');
-                img.src = imageData;
-                img.alt = '用户上传图片';
+                    const img = document.createElement('img');
+                    img.src = imageData;
+                    img.alt = role === 'user' ? '用户上传图片' : '图片';
 
-                richCard.appendChild(caption);
-                richCard.appendChild(img);
+                    richCard.appendChild(caption);
+                    richCard.appendChild(img);
+                }
 
                 if (content) {
                     const textBlock = document.createElement('div');
                     textBlock.className = 'message-text';
                     textBlock.textContent = content;
-                    textBlock.style.marginTop = '12px';
+                    textBlock.style.marginTop = imageData ? '12px' : '6px';
                     richCard.appendChild(textBlock);
                 }
 
