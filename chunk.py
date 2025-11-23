@@ -59,18 +59,12 @@ def get_chunk_model(language: str):
     return chunk_cache[language]
 
 
-def split_into_sentences(docs: str, max_chunk_size: int = 100, language: str = 'English') -> List[str]:
-    """
-    按句子分片，优先保持语义完整。
-    如果句子过长，再进行二次切割。
-    """
-    chunks = []
-    with open(docs, 'r', encoding='utf-8') as file:
-        content = file.read()
-
+def split_text_into_sentences(content: str, max_chunk_size: int = 100, language: str = 'English') -> List[str]:
+    """按句子分片，输入为原始文本。"""
     chunk_model = get_chunk_model(language)
     doc = chunk_model(content)
 
+    chunks: List[str] = []
     current_chunk = ""
     for sent in doc.sents:  # 遍历句子
         sent_text = sent.text.strip()  # strip()去除句子前后的空格
@@ -101,6 +95,15 @@ def split_into_sentences(docs: str, max_chunk_size: int = 100, language: str = '
     if current_chunk:
         chunks.append(current_chunk.strip())  # 提交尾部块
     return chunks
+
+
+def split_into_sentences(docs: str, max_chunk_size: int = 100, language: str = 'English') -> List[str]:
+    """
+    从文件中读取文本，再按句子分片。
+    """
+    with open(docs, 'r', encoding='utf-8') as file:
+        content = file.read()
+    return split_text_into_sentences(content, max_chunk_size=max_chunk_size, language=language)
 
 
 if __name__ == "__main__":

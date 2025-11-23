@@ -1,5 +1,8 @@
 import chromadb
-from typing import List
+from typing import List, Optional
+
+
+_EPHEMERAL_CLIENT: Optional[chromadb.Client] = None
 
 # 使用chromadb 保存chunks和embeddings向量 到数据库集合
 def save_embeddings(db, chunks: List[str], embeddings: List[List[float]]) -> None:
@@ -13,12 +16,19 @@ def save_embeddings(db, chunks: List[str], embeddings: List[List[float]]) -> Non
 
 
 # 是否持久化数据库
+def _get_ephemeral_client() -> chromadb.Client:
+    global _EPHEMERAL_CLIENT
+    if _EPHEMERAL_CLIENT is None:
+        _EPHEMERAL_CLIENT = chromadb.EphemeralClient()
+    return _EPHEMERAL_CLIENT
+
+
 def get_db(persistent: bool = False, path: str = "chroma_db", name: str = "default"):
     if persistent:
         from chromadb import PersistentClient
         client = PersistentClient(path=path)
     else:
-        client = chromadb.EphemeralClient()
+        client = _get_ephemeral_client()
     return client.get_or_create_collection(name=name)
 
 

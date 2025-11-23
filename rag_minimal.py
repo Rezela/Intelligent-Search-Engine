@@ -5,16 +5,12 @@ import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
 from typing import List, Tuple
-from api import HKGAIClient
+from api import GeminiClient
 import json
 import logging
 # from logging.handlers import RotatingFileHandler
 import time
-import datetime
-import os
-
-import logs
-from logs import init_logger
+from logs import init_logger, new_query_id
 
 '''
 # 日志轮换：最大1MB一个文件，最多保留5个
@@ -87,7 +83,7 @@ def main():
     ]
 
     rag = MinimalRAG(docs)
-    client = HKGAIClient()
+    client = GeminiClient()
     query = "What is the capital of China?"
     logging.info(f"User query: {query}")  # 记录用户查询
 
@@ -121,4 +117,9 @@ def main():
 
 if __name__ == "__main__":
     log_filename = init_logger()
+    print(f"Log saved to: ", log_filename)
+
+    query_id = new_query_id()
+    print(f"Query ID: ", query_id)
+
     main()

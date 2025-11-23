@@ -9,7 +9,7 @@ import logging
 from typing import Optional, Dict, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +19,8 @@ from DB import get_db
 from RAG import FullRAG
 from DeepSearch import DeepSearchManager
 from logs import init_logger, new_query_id, log_user_query, log_assistant_answer
+from document_loader import load_document_from_bytes, UnsupportedDocumentError
+from build_index import ingest_text
 
 # 全局状态：RAG 引擎和会话管理
 rag_engine: Optional[FullRAG] = None
@@ -80,6 +82,7 @@ class QueryRequest(BaseModel):
     session_id: Optional[str] = None
     use_deep_search: bool = True
     image_data: Optional[str] = None  # 添加图片数据字段
+    use_memory: bool = False
 
 
 class QueryResponse(BaseModel):
@@ -89,6 +92,13 @@ class QueryResponse(BaseModel):
     timing: Dict[str, float]
     context_preview: Optional[str] = None
     attempt_history: Optional[list] = None
+
+
+class UploadDocResponse(BaseModel):
+    session_id: str
+    collection: str
+    chunks: int
+    persistent: bool
 
 
 # ==================== API 路由 ====================
@@ -122,8 +132,23 @@ async def query(request: QueryRequest):
         sessions[session_id] = {
             "history": [],
             "created_at": time.time(),
+            "temp_collections": [],
         }
     
+    temp_collection_names = sessions[session_id].get("temp_collections", [])
+    extra_collections = []
+    for name in temp_collection_names:
+        try:
+            extra_collections.append(get_db(persistent=False, name=name))
+        except Exception as exc:
+            logging.warning("Unable to load temp collection %s: %s", name, exc)
+
+    conversation_history = None
+    if request.use_memory:
+        history_items = sessions[session_id]["history"]
+        if history_items:
+            conversation_history = history_items[-5:]
+
     try:
         # 执行查询
         if request.use_deep_search:
@@ -131,12 +156,16 @@ async def query(request: QueryRequest):
                 request.query,
                 language=request.language,
                 image_data=request.image_data,
+                extra_collections=extra_collections,
+                conversation_history=conversation_history,
             )
         else:
             result = rag_engine.query(
                 request.query,
                 language=request.language,
                 image_data=request.image_data,
+                extra_collections=extra_collections,
+                conversation_history=conversation_history,
             )
 
         log_user_query(
@@ -144,7 +173,11 @@ async def query(request: QueryRequest):
             query=request.query,
             session_id=session_id,
             has_image=bool(request.image_data),
-            extra={"use_deep_search": request.use_deep_search, "source_used": result.get("source")},
+            extra={
+                "use_deep_search": request.use_deep_search,
+                "use_memory": request.use_memory,
+                "source_used": result.get("source"),
+            },
         )
         
         # 提取上下文预览
@@ -198,6 +231,7 @@ async def get_session_history(session_id: str):
         "session_id": session_id,
         "history": sessions[session_id]["history"],
         "created_at": sessions[session_id]["created_at"],
+        "temp_collections": sessions[session_id].get("temp_collections", []),
     }
 
 
@@ -210,6 +244,14 @@ async def delete_session(session_id: str):
     raise HTTPException(status_code=404, detail="会话不存在")
 
 
+@app.delete("/api/session/{session_id}/temp_collections")
+async def clear_temp_collections(session_id: str):
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    sessions[session_id]["temp_collections"] = []
+    return {"message": "临时记忆已清空"}
+
+
 @app.get("/api/health")
 async def health():
     """健康检查"""
@@ -217,6 +259,68 @@ async def health():
         "status": "healthy" if rag_engine else "unhealthy",
         "sessions_count": len(sessions),
     }
+
+
+@app.post("/api/upload_doc", response_model=UploadDocResponse)
+async def upload_document(
+    file: UploadFile = File(...),
+    session_id: Optional[str] = Form(None),
+    language: str = Form("Chinese"),
+    chunk_size: int = Form(300),
+    persistent: bool = Form(False),
+    collection: Optional[str] = Form(None),
+):
+    if chunk_size <= 0:
+        raise HTTPException(status_code=400, detail="chunk_size must be positive")
+
+    session_id = session_id or new_query_id()
+    if session_id not in sessions:
+        sessions[session_id] = {
+            "history": [],
+            "created_at": time.time(),
+            "temp_collections": [],
+        }
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="上传文件为空")
+
+    try:
+        text = load_document_from_bytes(file.filename or "uploaded", data)
+    except UnsupportedDocumentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # pragma: no cover
+        logging.error("Document decode failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="无法解析上传文件")
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="文档未提取到有效文本")
+
+    try:
+        collection_name, chunk_count = ingest_text(
+            text=text,
+            language=language,
+            chunk_size=chunk_size,
+            persistent=persistent,
+            collection=collection,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # pragma: no cover
+        logging.error("Document ingestion failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="文档入库失败")
+
+    if not persistent:
+        temp_list = sessions[session_id].setdefault("temp_collections", [])
+        if collection_name not in temp_list:
+            temp_list.append(collection_name)
+
+    return UploadDocResponse(
+        session_id=session_id,
+        collection=collection_name,
+        chunks=chunk_count,
+        persistent=persistent,
+    )
 
 
 if __name__ == "__main__":

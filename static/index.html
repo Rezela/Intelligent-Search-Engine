@@ -400,6 +400,7 @@
             border-radius: 20px;
             backdrop-filter: blur(4px);
             box-shadow: var(--shadow-sm);
+            flex-wrap: wrap;
         }
 
         .switch-label {
@@ -408,6 +409,88 @@
             gap: 8px;
             cursor: pointer;
             user-select: none;
+        }
+
+        .session-tools {
+            margin-top: 12px;
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .session-card {
+            background: #fff;
+            border-radius: 16px;
+            padding: 12px 16px;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid #e8eaed;
+        }
+
+        .session-card h4 {
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1f1f1f;
+        }
+
+        .session-meta-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            font-size: 13px;
+            color: #5f6368;
+        }
+
+        .tag-pill {
+            border: 1px solid #d2e3fc;
+            background: #e8f0fe;
+            color: #1967d2;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+        }
+
+        .history-list {
+            max-height: 160px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 13px;
+        }
+
+        .history-entry {
+            border: 1px solid #e0e3ea;
+            border-radius: 12px;
+            padding: 8px 10px;
+            background: #fafbff;
+        }
+
+        .doc-upload-panel {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .doc-upload-panel input[type="file"] {
+            flex: 1;
+        }
+
+        .doc-upload-panel select,
+        .doc-upload-panel input[type="number"] {
+            border: 1px solid #d0d5dd;
+            border-radius: 8px;
+            padding: 6px 8px;
+            font-size: 13px;
+        }
+
+        .doc-upload-status {
+            font-size: 12px;
+            color: #5f6368;
+            margin-top: 4px;
         }
 
         /* Loading */
@@ -498,6 +581,51 @@
         </div>
     </div>
 
+    <div class="session-tools" id="sessionTools">
+        <div class="session-card">
+            <h4>上传文档以扩展会话记忆</h4>
+            <div class="doc-upload-panel">
+                <input type="file" id="docUpload" accept=".pdf,.txt,.md,.markdown,.json">
+                <select id="docLanguage">
+                    <option value="Chinese">中文</option>
+                    <option value="English">English</option>
+                </select>
+                <input type="number" id="docChunkSize" value="300" min="100" step="50" title="Chunk Size">
+                <label class="switch-label" style="margin-left:8px;">
+                    <input type="checkbox" id="docPersistent" style="accent-color: var(--primary-color)">
+                    <span>永久存储</span>
+                </label>
+                <button class="action-btn" style="background:#e8f0fe;color:#1967d2" onclick="uploadDocument()">
+                    <span class="material-icons-round">upload_file</span>
+                </button>
+            </div>
+            <div class="doc-upload-status" id="docUploadStatus"></div>
+            <div style="margin-top:8px; font-size:12px; color:#5f6368;">
+                临时存储将在当前会话中生效，可随时清空。永久存储写入主知识库。
+            </div>
+        </div>
+
+        <div class="session-card">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h4>会话临时记忆</h4>
+                <button class="action-btn" id="clearTempMemory" style="color:#d93025" onclick="clearTempMemory()" title="清空临时记忆">
+                    <span class="material-icons-round">delete</span>
+                </button>
+            </div>
+            <div class="session-meta-row" id="tempCollections"></div>
+        </div>
+
+        <div class="session-card">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h4>最近对话</h4>
+                <button class="action-btn" onclick="refreshHistory()" title="刷新历史">
+                    <span class="material-icons-round">refresh</span>
+                </button>
+            </div>
+            <div class="history-list" id="historyList"></div>
+        </div>
+    </div>
+
     <div class="chat-container" id="chatContainer">
         <div class="chat-content" id="chatContent">
             <div class="welcome-screen" id="welcomeScreen">
@@ -534,6 +662,11 @@
                 <input type="checkbox" id="useDeepSearch" checked style="accent-color: var(--primary-color)">
                 <span class="material-icons-round" style="font-size: 16px;">psychology</span>
                 深度思考模式 (自动回退)
+            </label>
+            <label class="switch-label">
+                <input type="checkbox" id="useMemory" style="accent-color: var(--primary-color)">
+                <span class="material-icons-round" style="font-size: 16px;">history</span>
+                记忆模式 (使用最近对话)
             </label>
         </div>
 
@@ -583,6 +716,82 @@
         let sessionId = null;
         let isProcessing = false;
         let imageData = null; // 添加图片相关变量
+        let tempCollections = [];
+
+        async function refreshHistory() {
+            if (!sessionId) return;
+            try {
+                const res = await fetch(`/api/session/${sessionId}/history`);
+                if (!res.ok) return;
+                const data = await res.json();
+                tempCollections = data.temp_collections || [];
+                renderTempCollections();
+                renderHistoryList(data.history || []);
+            } catch (err) {
+                console.error('History fetch failed', err);
+            }
+        }
+
+        function renderTempCollections() {
+            const container = document.getElementById('tempCollections');
+            if (!container) return;
+            container.innerHTML = '';
+            if (!tempCollections.length) {
+                container.innerHTML = '<span style="color:#9aa0a6">暂无临时记忆</span>';
+                return;
+            }
+            tempCollections.forEach(name => {
+                const pill = document.createElement('span');
+                pill.className = 'tag-pill';
+                pill.textContent = name;
+                container.appendChild(pill);
+            });
+        }
+
+        function renderHistoryList(history) {
+            const list = document.getElementById('historyList');
+            if (!list) return;
+            list.innerHTML = '';
+            if (!history.length) {
+                list.innerHTML = '<div class="history-entry" style="color:#9aa0a6">暂无历史</div>';
+                return;
+            }
+            history.slice(-10).reverse().forEach(item => {
+                const entry = document.createElement('div');
+                entry.className = 'history-entry';
+                entry.innerHTML = `<strong>Q:</strong> ${item.query}<br><strong>A:</strong> ${item.answer}`;
+                list.appendChild(entry);
+            });
+        }
+
+        async function uploadDocument() {
+            const fileInput = document.getElementById('docUpload');
+            const statusEl = document.getElementById('docUploadStatus');
+            if (!fileInput || !statusEl) return;
+            if (!fileInput.files.length) {
+                statusEl.textContent = '请选择要上传的文件';
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('session_id', sessionId || '');
+            formData.append('language', document.getElementById('docLanguage').value);
+            formData.append('chunk_size', document.getElementById('docChunkSize').value);
+            formData.append('persistent', document.getElementById('docPersistent').checked ? 'true' : 'false');
+            try {
+                statusEl.textContent = '上传中...';
+                const res = await fetch('/api/upload_doc', { method: 'POST', body: formData });
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                sessionId = data.session_id;
+                document.getElementById('sessionTools').style.display = 'flex';
+                statusEl.textContent = `已写入集合 ${data.collection}，共 ${data.chunks} 个片段`;
+                await refreshHistory();
+                fileInput.value = '';
+            } catch (err) {
+                statusEl.textContent = `上传失败：${err}`;
+            }
+        }
 
         // 自动调整输入框高度
         function autoResize(textarea) {
@@ -690,6 +899,7 @@
                         language: 'Chinese',
                         session_id: sessionId,
                         use_deep_search: document.getElementById('useDeepSearch').checked,
+                        use_memory: document.getElementById('useMemory').checked,
                         image_data: outgoingImageData // 添加图片数据
                     })
                 });
@@ -697,6 +907,8 @@
                 if (!response.ok) throw new Error('Network error');
                 const data = await response.json();
                 sessionId = data.session_id;
+                document.getElementById('sessionTools').style.display = 'flex';
+                await refreshHistory();
 
                 // 移除 Loading，显示回答
                 removeMessage(loadingId);
@@ -939,6 +1151,22 @@
                 console.error('Health check failed', e);
             }
         }
+
+        async function clearTempMemory() {
+            if (!sessionId) return;
+            try {
+                const res = await fetch(`/api/session/${sessionId}/temp_collections`, { method: 'DELETE' });
+                if (!res.ok) throw new Error(await res.text());
+                tempCollections = [];
+                renderTempCollections();
+                document.getElementById('docUploadStatus').textContent = '临时记忆已清空';
+            } catch (err) {
+                console.error('清空临时记忆失败', err);
+                document.getElementById('docUploadStatus').textContent = `清空失败：${err}`;
+            }
+        }
+
+        document.getElementById('clearTempMemory').addEventListener('click', clearTempMemory);
 
         window.onload = checkHealth;
         setInterval(checkHealth, 30000);

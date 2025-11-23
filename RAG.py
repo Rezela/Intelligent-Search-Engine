@@ -1,14 +1,15 @@
 import json
 import time
 import logging
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List, Dict, Any
 import json
-from api import GeminiClient
+from DB import save_embeddings, get_db
 from retrieve import chromadb_retrieve
 from rerank import rerank
 from logs import init_logger, new_query_id
 from SourceRouter import SourceRouter
 from SourceAPI import HANDLERS
+from api import GeminiClient
 from intent_classifier import LLMIntentClassifier
 
 # RAG 的 Prompt 构造 （仅使用本地上下文，无信息则不输出）
@@ -191,6 +192,8 @@ class FullRAG:
         language: str = "Chinese",
         top_k: int = 5,
         image_data: Optional[str] = None,
+        extra_collections: Optional[List] = None,
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
     ):
         # Step 0: 智能源选择
         t0 = time.time()
@@ -244,13 +247,29 @@ class FullRAG:
             }
 
         # 默认走 RAG
-        return self._rag_pipeline(user_query, language, top_k)
+        return self._rag_pipeline(
+            user_query,
+            language,
+            top_k,
+            extra_collections=extra_collections,
+            conversation_history=conversation_history,
+        )
 
 
-    def _rag_pipeline(self, user_query: str, language: str = "Chinese", top_k: int = 5):
+    def _rag_pipeline(
+        self,
+        user_query: str,
+        language: str = "Chinese",
+        top_k: int = 5,
+        extra_collections: Optional[List] = None,
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+    ):
         # Step 1: 检索
         t0 = time.time()
-        retrieved_results = chromadb_retrieve(self.db, user_query, language, top_k=top_k)
+        collections = [self.db]
+        if extra_collections:
+            collections.extend(extra_collections)
+        retrieved_results = chromadb_retrieve(collections, user_query, language, top_k=top_k)
         t1 = time.time()
 
         # Step 2: rerank
@@ -259,6 +278,15 @@ class FullRAG:
 
         # Step 3: 构造上下文
         context = "\n\n".join([chunk for chunk, score in reranked_results])
+
+        if conversation_history:
+            history_text = "\n\n".join(
+                [
+                    f"User: {item.get('query','')}\nAssistant: {item.get('answer','')}"
+                    for item in conversation_history
+                ]
+            )
+            context = history_text + "\n\nRecent knowledge:\n" + context
 
         # Step 4: 调用 LLM
         system_prompt, user_prompt = make_rag_prompt(user_query, context)

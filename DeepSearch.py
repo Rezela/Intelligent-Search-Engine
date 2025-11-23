@@ -2,7 +2,7 @@ import json
 import time
 import logging
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from SourceAPI import HANDLERS
 
@@ -41,6 +41,8 @@ class DeepSearchManager:
         query: str,
         language: str = "Chinese",
         image_data: Optional[str] = None,
+        extra_collections: Optional[List] = None,
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         attempt_history = []
         strategy = "primary"
@@ -54,6 +56,8 @@ class DeepSearchManager:
                     query,
                     language=language,
                     image_data=image_data,
+                    extra_collections=extra_collections,
+                    conversation_history=conversation_history,
                 )
 
             metadata = getattr(self.rag.intent_classifier, "last_result", None)

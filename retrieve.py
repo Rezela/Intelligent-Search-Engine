@@ -1,25 +1,31 @@
-from typing import List, Tuple
+from typing import Iterable, List, Tuple
 from embedding import embed_chunk
 
 # retrieve from chromadb
-def chromadb_retrieve(db, query: str, langauge: str = 'Chinese', top_k: int = 3) -> List[Tuple[str, str]]:
+def chromadb_retrieve(collections, query: str, langauge: str = 'Chinese', top_k: int = 3) -> List[Tuple[str, float]]:
     """
-    在指定的 ChromaDB 集合中检索与 query 最相关的 top_k 文档
-    :param db: chromadb.Collection 对象
-    :param query: 用户查询字符串
-    :param top_k: 返回的文档数量
-    :return: 文本列表
+    在一个或多个 ChromaDB 集合中检索与 query 最相关的 top_k 文档。
+    collections 可以是单个 collection 或者 collection 列表。
     """
+    if not isinstance(collections, (list, tuple)):
+        collections = [collections]
+
     query_embedding = embed_chunk(query, langauge)
-    # 使用chromadb_collection集合来检索query
-    results = db.query(
-        query_embeddings=[query_embedding],
-        n_results=top_k,
-        include=["documents", "distances"]
-    )
-    documents = results["documents"][0]
-    distances = results["distances"][0]
-    return list(zip(documents, distances))  # [0]: 取第一个查询的结果（即唯一的query）
+    combined = []
+    for collection in collections:
+        if collection is None:
+            continue
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            include=["documents", "distances"],
+        )
+        documents = results.get("documents", [[]])[0]
+        distances = results.get("distances", [[]])[0]
+        combined.extend(zip(documents, distances))
+
+    combined.sort(key=lambda item: item[1])
+    return combined[:top_k]
 
 if __name__ == '__main__':
 
