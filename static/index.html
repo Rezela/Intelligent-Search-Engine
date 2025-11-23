@@ -3,578 +3,751 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FullRAG - 智能问答系统</title>
+    <title>FullRAG AI</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        :root {
+            --bg-color: #f0f4f9; /* Gemini 风格浅灰背景 */
+            --chat-bg: #ffffff;
+            --primary-color: #4c8bf5; /* 谷歌蓝 */
+            --gradient-start: #4c8bf5;
+            --gradient-end: #d96570; /* Gemini 渐变红 */
+            --text-primary: #1f1f1f;
+            --text-secondary: #5f6368;
+            --bubble-user: #e8f0fe;
+            --border-radius: 24px;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.12);
+            --shadow-float: 0 6px 16px rgba(0,0,0,0.08);
         }
 
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: #f5f5f5;
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-            color: #333;
-        }
-
-        .container {
-            background: #ffffff;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-            width: 100%;
-            max-width: 900px;
-            height: 90vh;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            height: 100vh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
         }
 
-        .header {
-            background: #ffffff;
-            border-bottom: 1px solid #e5e5e5;
-            padding: 16px 20px;
+        /* 顶部导航 */
+        .navbar {
+            padding: 16px 24px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            background: transparent;
+            z-index: 100;
         }
 
-        .header h1 {
-            font-size: 18px;
+        .logo {
+            font-size: 20px;
             font-weight: 600;
-            color: #1a1a1a;
+            background: linear-gradient(90deg, var(--gradient-start), var(--gradient-end));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
-        .header .status {
+        .status-badge {
             font-size: 12px;
-            color: #666;
+            padding: 4px 12px;
+            background: rgba(255,255,255,0.8);
+            border-radius: 20px;
+            color: var(--text-secondary);
             display: flex;
             align-items: center;
             gap: 6px;
+            box-shadow: var(--shadow-sm);
         }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: #ddd; }
+        .dot.active { background: #34a853; box-shadow: 0 0 4px #34a853; }
 
-        .status-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: #22c55e;
-        }
-
-        .status-dot.unhealthy {
-            background: #ef4444;
-        }
-
-        .chat-area {
+        /* 聊天区域 */
+        .chat-container {
             flex: 1;
             overflow-y: auto;
             padding: 20px;
+            scroll-behavior: smooth;
             display: flex;
             flex-direction: column;
-            gap: 20px;
-            background: #fafafa;
+            align-items: center;
         }
 
-        .message {
+        .chat-content {
+            width: 100%;
+            max-width: 800px;
             display: flex;
+            flex-direction: column;
+            gap: 24px;
+            padding-bottom: 120px; /* 为底部输入框留空 */
+        }
+
+        /* 欢迎屏幕 */
+        .welcome-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 80%;
+            text-align: center;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .welcome-title {
+            font-size: 48px;
+            font-weight: 500;
+            margin-bottom: 16px;
+            background: linear-gradient(90deg, #4285f4, #9b72cb, #d96570);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -1px;
+        }
+
+        .suggestion-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
             gap: 12px;
-            animation: fadeIn 0.2s ease-in;
+            margin-top: 40px;
+            width: 100%;
+            max-width: 600px;
         }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(8px); }
-            to { opacity: 1; transform: translateY(0); }
+        .suggestion-card {
+            background: #fff;
+            padding: 16px;
+            border-radius: 12px;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+            box-shadow: var(--shadow-sm);
+            font-size: 14px;
+            color: var(--text-secondary);
         }
 
-        .message.user {
+        .suggestion-card:hover {
+            background: #f8fafd;
+            border-color: #dbe4f7;
+            transform: translateY(-2px);
+        }
+
+        /* 消息样式 */
+        .message-row {
+            display: flex;
+            gap: 16px;
+            animation: slideUp 0.3s ease;
+            width: 100%;
+        }
+
+        .message-row.user {
             flex-direction: row-reverse;
         }
 
-        .message-avatar {
+        .avatar {
             width: 32px;
             height: 32px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-weight: 500;
-            font-size: 13px;
             flex-shrink: 0;
+            background: #fff;
+            box-shadow: var(--shadow-sm);
         }
-
-        .message.user .message-avatar {
-            background: #2563eb;
-            color: white;
-        }
-
-        .message.assistant .message-avatar {
-            background: #e5e7eb;
-            color: #4b5563;
-        }
-
-        .message-content {
-            flex: 1;
-            max-width: 75%;
-        }
-
-        .message.user .message-content {
-            text-align: right;
-        }
+        
+        .avatar span { font-size: 18px; }
 
         .message-bubble {
-            padding: 12px 16px;
-            border-radius: 8px;
+            max-width: 85%;
             line-height: 1.6;
-            word-wrap: break-word;
-            font-size: 14px;
-        }
-
-        .message.user .message-bubble {
-            background: #2563eb;
-            color: white;
-        }
-
-        .message.assistant .message-bubble {
-            background: #ffffff;
-            color: #1a1a1a;
-            border: 1px solid #e5e5e5;
-        }
-
-        .message-meta {
-            font-size: 11px;
-            color: #9ca3af;
-            margin-top: 6px;
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-
-        .message.user .message-meta {
-            justify-content: flex-end;
-        }
-
-        .source-badge {
-            display: inline-block;
-            padding: 3px 8px;
-            background: #f3f4f6;
-            border: 1px solid #e5e7eb;
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: 500;
-            color: #6b7280;
-        }
-
-        .loading {
-            display: flex;
-            gap: 6px;
-            align-items: center;
-            color: #9ca3af;
-            font-size: 13px;
-        }
-
-        .loading-dots {
-            display: flex;
-            gap: 4px;
-        }
-
-        .loading-dot {
-            width: 5px;
-            height: 5px;
-            border-radius: 50%;
-            background: #9ca3af;
-            animation: bounce 1.4s infinite;
-        }
-
-        .loading-dot:nth-child(2) {
-            animation-delay: 0.2s;
-        }
-
-        .loading-dot:nth-child(3) {
-            animation-delay: 0.4s;
-        }
-
-        @keyframes bounce {
-            0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
-            40% { transform: translateY(-6px); opacity: 1; }
-        }
-
-        .input-area {
-            border-top: 1px solid #e5e5e5;
-            padding: 16px 20px;
-            background: #ffffff;
-        }
-
-        .input-container {
-            display: flex;
-            gap: 10px;
-            align-items: flex-end;
-        }
-
-        .input-wrapper {
-            flex: 1;
+            font-size: 15px;
             position: relative;
         }
 
-        textarea {
+        .message-row.user .message-bubble {
+            background: var(--bubble-user);
+            padding: 12px 20px;
+            border-radius: 20px 4px 20px 20px;
+            color: var(--text-primary);
+        }
+
+        .message-row.assistant .message-bubble {
+            background: transparent;
+            padding: 0;
             width: 100%;
-            padding: 10px 14px;
-            border: 1px solid #d1d5db;
+            color: var(--text-primary);
+        }
+
+        /* Markdown 内容样式 */
+        .markdown-body p { margin-bottom: 12px; }
+        .markdown-body ul, .markdown-body ol { margin-bottom: 12px; padding-left: 24px; }
+        .markdown-body code { background: #f1f3f4; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
+        .markdown-body pre { background: #1e1e1e; padding: 16px; border-radius: 8px; overflow-x: auto; margin-bottom: 12px; }
+        .markdown-body pre code { background: transparent; color: #fff; padding: 0; }
+        .markdown-body table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+        .markdown-body th, .markdown-body td { padding: 8px 12px; border: 1px solid #e0e0e0; font-size: 14px; }
+        .markdown-body th { background: #f8f9fa; font-weight: 600; }
+        .markdown-body strong { color: #000; font-weight: 600; }
+
+        /* 思维链/搜索过程样式 */
+        .thought-process {
+            background: #f8f9fa;
             border-radius: 8px;
-            font-size: 14px;
-            font-family: inherit;
-            resize: none;
-            outline: none;
-            transition: border-color 0.2s;
-            min-height: 40px;
-            max-height: 120px;
-            background: #ffffff;
-            color: #1a1a1a;
+            margin-bottom: 16px;
+            border: 1px solid #e0e0e0;
+            overflow: hidden;
         }
 
-        textarea:focus {
-            border-color: #2563eb;
-        }
-
-        textarea::placeholder {
-            color: #9ca3af;
-        }
-
-        .send-button {
-            padding: 10px 20px;
-            background: #2563eb;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 500;
+        .thought-header {
+            padding: 10px 16px;
             cursor: pointer;
-            transition: background-color 0.2s;
-            flex-shrink: 0;
-            height: 40px;
-        }
-
-        .send-button:hover:not(:disabled) {
-            background: #1d4ed8;
-        }
-
-        .send-button:disabled {
-            background: #9ca3af;
-            cursor: not-allowed;
-        }
-
-        .settings {
-            display: flex;
-            gap: 12px;
-            margin-top: 10px;
-            font-size: 12px;
-        }
-
-        .settings label {
             display: flex;
             align-items: center;
-            gap: 6px;
-            color: #6b7280;
-            cursor: pointer;
-        }
-
-        .settings input[type="checkbox"] {
-            cursor: pointer;
-            width: 14px;
-            height: 14px;
-        }
-
-        .error {
-            background: #fef2f2;
-            color: #991b1b;
-            padding: 12px 16px;
-            border-radius: 8px;
+            justify-content: space-between;
             font-size: 13px;
-            border: 1px solid #fecaca;
+            color: var(--text-secondary);
+            font-weight: 500;
+            background: #fff;
         }
 
-        /* 滚动条样式 */
-        .chat-area::-webkit-scrollbar {
-            width: 6px;
+        .thought-header:hover { background: #f1f3f4; }
+        
+        .thought-content {
+            padding: 12px 16px;
+            border-top: 1px solid #e0e0e0;
+            font-size: 13px;
+            color: #444;
+            display: none;
+        }
+        
+        .thought-content.open { display: block; }
+
+        .step-item {
+            margin-bottom: 8px;
+            padding-left: 12px;
+            border-left: 2px solid #ddd;
+        }
+        
+        .step-tag {
+            display: inline-block;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+        .tag-google { background: #e8f0fe; color: #1967d2; }
+        .tag-rag { background: #e6f4ea; color: #137333; }
+        .tag-api { background: #fce8e6; color: #c5221f; }
+
+        /* 底部来源信息 */
+        .meta-info {
+            margin-top: 12px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .source-chip {
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            padding: 4px 10px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .source-chip i { font-size: 14px; }
+
+        /* 输入区域 (悬浮式) */
+        .input-area {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: linear-gradient(to top, var(--bg-color) 80%, rgba(240,244,249,0));
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            z-index: 50;
         }
 
-        .chat-area::-webkit-scrollbar-track {
+        .input-box {
+            background: #fff;
+            width: 100%;
+            max-width: 800px;
+            border-radius: 32px;
+            padding: 8px 16px;
+            box-shadow: var(--shadow-float);
+            display: flex;
+            align-items: flex-end;
+            gap: 12px;
+            border: 1px solid transparent;
+            transition: border 0.2s;
+        }
+
+        .input-box:focus-within {
+            border-color: #d0d0d0;
+        }
+
+        textarea {
+            flex: 1;
+            border: none;
             background: transparent;
+            padding: 14px 0;
+            max-height: 150px;
+            resize: none;
+            outline: none;
+            font-family: inherit;
+            font-size: 16px;
+            line-height: 1.5;
         }
 
-        .chat-area::-webkit-scrollbar-thumb {
-            background: #d1d5db;
-            border-radius: 3px;
+        .action-btn {
+            background: transparent;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+            margin-bottom: 4px;
         }
 
-        .chat-area::-webkit-scrollbar-thumb:hover {
-            background: #9ca3af;
+        .action-btn:hover { background: #f0f0f0; color: var(--primary-color); }
+        
+        .send-btn {
+            background: var(--primary-color);
+            color: #fff;
+        }
+        .send-btn:hover { background: #1a73e8; color: #fff; opacity: 0.9; }
+        .send-btn:disabled { background: #dadce0; cursor: not-allowed; }
+
+        /* Deep Search 开关 */
+        .options-bar {
+            position: absolute;
+            bottom: 90px;
+            display: flex;
+            gap: 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            background: rgba(255,255,255,0.9);
+            padding: 6px 12px;
+            border-radius: 20px;
+            backdrop-filter: blur(4px);
+            box-shadow: var(--shadow-sm);
         }
 
-        /* 响应式设计 */
-        @media (max-width: 768px) {
-            .container {
-                height: 100vh;
-                border-radius: 0;
-            }
+        .switch-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            user-select: none;
+        }
 
-            body {
-                padding: 0;
-            }
+        /* Loading */
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 12px 0;
+        }
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            background: linear-gradient(90deg, var(--gradient-start), var(--gradient-end));
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out;
+            opacity: 0.6;
+        }
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
 
-            .message-content {
-                max-width: 85%;
-            }
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* 响应式 */
+        @media (max-width: 600px) {
+            .welcome-title { font-size: 32px; }
+            .suggestion-grid { grid-template-columns: 1fr; }
+            .message-bubble { max-width: 95%; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>FullRAG 智能问答</h1>
-            <div class="status">
-                <span class="status-dot" id="status-dot"></span>
-                <span id="status-text">就绪</span>
-            </div>
-        </div>
 
-        <div class="chat-area" id="chatArea">
-            <div class="message assistant">
-                <div class="message-avatar">AI</div>
-                <div class="message-content">
-                    <div class="message-bubble">
-                        你好！我是 FullRAG 智能助手，可以帮你查询：
-                        <br><br>• 天气信息（实时天气、预报、空气质量）
-                        <br>• 交通路线（路径规划、出行时间）
-                        <br>• 金融数据（股票、汇率、金价）
-                        <br>• 网络搜索（最新资讯、事实查询）
-                        <br>• 本地知识库（文档问答）
-                        <br><br>请告诉我你想了解什么？
+    <div class="navbar">
+        <div class="logo">
+            <span class="material-icons-round" style="color: var(--primary-color)">auto_awesome</span>
+            FullRAG
+        </div>
+        <div class="status-badge">
+            <div class="dot" id="status-dot"></div>
+            <span id="status-text">连接中...</span>
+        </div>
+    </div>
+
+    <div class="chat-container" id="chatContainer">
+        <div class="chat-content" id="chatContent">
+            <div class="welcome-screen" id="welcomeScreen">
+                <div class="welcome-title">你好，想查点什么？</div>
+                <div style="color: var(--text-secondary); margin-bottom: 30px;">
+                    集成了天气、交通、金融、Google 搜索和本地知识库的智能助手
+                </div>
+                
+                <div class="suggestion-grid">
+                    <div class="suggestion-card" onclick="setInput('今天香港的天气怎么样？')">
+                        <span style="display:block; margin-bottom:4px">🌤️ 天气查询</span>
+                        今天香港的天气怎么样？
+                    </div>
+                    <div class="suggestion-card" onclick="setInput('腾讯现在的股价是多少？')">
+                        <span style="display:block; margin-bottom:4px">📈 金融数据</span>
+                        腾讯现在的股价是多少？
+                    </div>
+                    <div class="suggestion-card" onclick="setInput('从坚尼地城到机场怎么去？')">
+                        <span style="display:block; margin-bottom:4px">🚗 交通规划</span>
+                        从坚尼地城到机场怎么去？
+                    </div>
+                    <div class="suggestion-card" onclick="setInput('OpenAI 最新发布的模型新闻')">
+                        <span style="display:block; margin-bottom:4px">🌏 深度搜索</span>
+                        OpenAI 最新发布的模型新闻
                     </div>
                 </div>
             </div>
         </div>
+    </div>
 
-        <div class="input-area">
-            <div class="input-container">
-                <div class="input-wrapper">
-                    <textarea 
-                        id="queryInput" 
-                        placeholder="输入你的问题..." 
-                        rows="1"
-                        onkeydown="handleKeyDown(event)"
-                    ></textarea>
-                </div>
-                <button class="send-button" id="sendButton" onclick="sendQuery()">
-                    发送
-                </button>
-            </div>
-            <div class="settings">
-                <label>
-                    <input type="checkbox" id="useDeepSearch" checked>
-                    启用深度搜索（多轮回退）
-                </label>
-            </div>
+    <div class="input-area">
+        <div class="options-bar" id="optionsBar" style="display: flex;">
+            <label class="switch-label">
+                <input type="checkbox" id="useDeepSearch" checked style="accent-color: var(--primary-color)">
+                <span class="material-icons-round" style="font-size: 16px;">psychology</span>
+                深度思考模式 (自动回退)
+            </label>
+        </div>
+
+        <div class="input-box">
+            <button class="action-btn" title="上传附件 (示例)">
+                <span class="material-icons-round">add_circle_outline</span>
+            </button>
+            <textarea 
+                id="queryInput" 
+                placeholder="输入问题..." 
+                rows="1"
+                oninput="autoResize(this)"
+                onkeydown="handleKeyDown(event)"
+            ></textarea>
+            <button class="action-btn send-btn" id="sendButton" onclick="sendQuery()">
+                <span class="material-icons-round">arrow_upward</span>
+            </button>
         </div>
     </div>
 
     <script>
-        let sessionId = null;
-        let isLoading = false;
-
-        // 自动调整文本框高度
-        const textarea = document.getElementById('queryInput');
-        textarea.addEventListener('input', function() {
-            this.style.height = 'auto';
-            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        // 初始化 Markdown 配置
+        marked.setOptions({
+            highlight: function(code, lang) {
+                const language = highlight.getLanguage(lang) ? lang : 'plaintext';
+                return highlight.highlight(code, { language }).value;
+            },
+            langPrefix: 'hljs language-',
+            breaks: true
         });
 
-        // 回车发送（Shift+Enter 换行）
-        function handleKeyDown(event) {
-            if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
+        let sessionId = null;
+        let isProcessing = false;
+
+        // 自动调整输入框高度
+        function autoResize(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px';
+            
+            // 隐藏/显示 Deep Search 选项
+            const optionsBar = document.getElementById('optionsBar');
+            if (textarea.value.length > 0) {
+                optionsBar.style.display = 'none';
+            } else {
+                optionsBar.style.display = 'flex';
+            }
+        }
+
+        function setInput(text) {
+            const input = document.getElementById('queryInput');
+            input.value = text;
+            autoResize(input);
+            input.focus();
+            sendQuery();
+        }
+
+        function handleKeyDown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
                 sendQuery();
             }
         }
 
-        // 发送查询
         async function sendQuery() {
             const input = document.getElementById('queryInput');
             const query = input.value.trim();
             
-            if (!query || isLoading) return;
+            if (!query || isProcessing) return;
 
-            // 禁用输入
-            isLoading = true;
+            // UI 状态更新
+            document.getElementById('welcomeScreen').style.display = 'none';
+            isProcessing = true;
             input.disabled = true;
             document.getElementById('sendButton').disabled = true;
 
             // 添加用户消息
-            addMessage('user', query);
+            appendMessage('user', query);
             input.value = '';
             input.style.height = 'auto';
 
-            // 显示加载状态
-            const loadingId = addMessage('assistant', '', true);
+            // 添加 Loading 占位符
+            const loadingId = appendLoading();
 
             try {
                 const response = await fetch('/api/query', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         query: query,
                         language: 'Chinese',
                         session_id: sessionId,
-                        use_deep_search: document.getElementById('useDeepSearch').checked,
-                    }),
+                        use_deep_search: document.getElementById('useDeepSearch').checked
+                    })
                 });
 
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
+                if (!response.ok) throw new Error('Network error');
                 const data = await response.json();
                 sessionId = data.session_id;
 
-                // 移除加载消息，添加实际回答
+                // 移除 Loading，显示回答
                 removeMessage(loadingId);
-                addMessage('assistant', data.answer, false, data.source, data.timing);
-
-                // 如果有尝试历史，显示详细信息
-                if (data.attempt_history && data.attempt_history.length > 1) {
-                    const attemptsInfo = data.attempt_history.map(a => 
-                        `尝试 #${a.attempt}: ${a.strategy} (来源: ${a.source})`
-                    ).join('\n');
-                    addMessage('assistant', `搜索过程：\n${attemptsInfo}`, false, 'system');
-                }
+                appendAssistantMessage(data);
 
             } catch (error) {
                 removeMessage(loadingId);
-                addMessage('assistant', `错误：${error.message}`, false, 'error');
-                console.error('Query error:', error);
+                appendMessage('assistant', `❌ 出错了: ${error.message}`);
+                console.error(error);
             } finally {
-                // 恢复输入
-                isLoading = false;
+                isProcessing = false;
                 input.disabled = false;
                 document.getElementById('sendButton').disabled = false;
                 input.focus();
+                document.getElementById('optionsBar').style.display = 'flex';
             }
         }
 
-        // 添加消息到聊天区域
-        function addMessage(role, content, isLoading = false, source = null, timing = null) {
-            const chatArea = document.getElementById('chatArea');
-            const messageId = 'msg-' + Date.now() + '-' + Math.random();
-            const messageDiv = document.createElement('div');
-            messageDiv.id = messageId;
-            messageDiv.className = `message ${role}`;
+        // 渲染消息
+        function appendMessage(role, text) {
+            const container = document.getElementById('chatContent');
+            const div = document.createElement('div');
+            div.className = `message-row ${role}`;
+            
+            // 头像
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar';
+            if (role === 'user') {
+                avatar.innerHTML = '<span class="material-icons-round" style="color:#5f6368">person</span>';
+            } else {
+                avatar.innerHTML = '<span class="material-icons-round" style="color:var(--primary-color)">auto_awesome</span>';
+            }
+
+            // 气泡
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble markdown-body';
+            
+            if (role === 'user') {
+                bubble.textContent = text;
+            } else {
+                bubble.innerHTML = marked.parse(text);
+            }
+
+            div.appendChild(avatar);
+            div.appendChild(bubble);
+            container.appendChild(div);
+            scrollToBottom();
+        }
+
+        // 渲染 AI 复杂回答（包含思维链和来源）
+        function appendAssistantMessage(data) {
+            const container = document.getElementById('chatContent');
+            const div = document.createElement('div');
+            div.className = 'message-row assistant';
 
             const avatar = document.createElement('div');
-            avatar.className = 'message-avatar';
-            avatar.textContent = role === 'user' ? '你' : 'AI';
+            avatar.className = 'avatar';
+            avatar.innerHTML = '<span class="material-icons-round" style="color:var(--primary-color)">auto_awesome</span>';
 
             const contentDiv = document.createElement('div');
-            contentDiv.className = 'message-content';
+            contentDiv.style.flex = '1';
+            contentDiv.style.maxWidth = '100%';
 
-            const bubble = document.createElement('div');
-            bubble.className = 'message-bubble';
-
-            if (isLoading) {
-                bubble.innerHTML = '<div class="loading"><span>正在思考</span><div class="loading-dots"><span class="loading-dot"></span><span class="loading-dot"></span><span class="loading-dot"></span></div></div>';
-            } else {
-                bubble.textContent = content;
+            // 1. 思维链 / 搜索过程 (如果有 attempt_history)
+            if (data.attempt_history && data.attempt_history.length > 0) {
+                const thoughtDiv = document.createElement('div');
+                thoughtDiv.className = 'thought-process';
+                
+                const stepsCount = data.attempt_history.length;
+                const headerText = `已完成 ${stepsCount} 步思考与搜索`;
+                
+                thoughtDiv.innerHTML = `
+                    <div class="thought-header" onclick="this.nextElementSibling.classList.toggle('open')">
+                        <div style="display:flex;align-items:center;gap:6px">
+                            <span class="material-icons-round" style="font-size:16px">manage_search</span>
+                            ${headerText}
+                        </div>
+                        <span class="material-icons-round">expand_more</span>
+                    </div>
+                    <div class="thought-content">
+                        ${data.attempt_history.map(step => `
+                            <div class="step-item">
+                                <span class="step-tag tag-${getStrategyTag(step.source)}">${step.source}</span>
+                                <div style="color:#666">${step.strategy === 'google' ? 'Google 搜索' : '知识库/API检索'}</div>
+                                <div style="font-size:11px;color:#999;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                                    ${step.answer_preview || '无预览'}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+                contentDiv.appendChild(thoughtDiv);
             }
 
+            // 2. 主要回答
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble markdown-body';
+            bubble.innerHTML = marked.parse(data.answer);
             contentDiv.appendChild(bubble);
 
-            // 添加元信息（来源、时间等）
-            if (!isLoading && (source || timing)) {
-                const meta = document.createElement('div');
-                meta.className = 'message-meta';
-                
-                if (source && source !== 'error' && source !== 'system') {
-                    const badge = document.createElement('span');
-                    badge.className = 'source-badge';
-                    badge.textContent = getSourceLabel(source);
-                    meta.appendChild(badge);
-                }
-
-                if (timing) {
-                    const totalTime = Object.values(timing).reduce((a, b) => a + b, 0);
-                    const timeSpan = document.createElement('span');
-                    timeSpan.textContent = `⏱ ${totalTime.toFixed(2)}s`;
-                    meta.appendChild(timeSpan);
-                }
-
-                if (meta.children.length > 0) {
-                    contentDiv.appendChild(meta);
-                }
+            // 3. 底部元数据 (来源 & 耗时)
+            const metaDiv = document.createElement('div');
+            metaDiv.className = 'meta-info';
+            
+            const sourceIcon = getSourceIcon(data.source);
+            const sourceName = getSourceLabel(data.source);
+            
+            // 计算总耗时
+            let totalTime = 0;
+            if (data.timing) {
+                totalTime = Object.values(data.timing).reduce((a, b) => a + b, 0);
             }
 
-            messageDiv.appendChild(avatar);
-            messageDiv.appendChild(contentDiv);
-            chatArea.appendChild(messageDiv);
+            metaDiv.innerHTML = `
+                <div class="source-chip">
+                    <span class="material-icons-round">${sourceIcon}</span>
+                    ${sourceName}
+                </div>
+                ${totalTime > 0 ? `<span style="margin-left:8px">⏱ ${totalTime.toFixed(2)}s</span>` : ''}
+            `;
+            contentDiv.appendChild(metaDiv);
 
-            // 滚动到底部
-            chatArea.scrollTop = chatArea.scrollHeight;
-
-            return messageId;
+            div.appendChild(avatar);
+            div.appendChild(contentDiv);
+            container.appendChild(div);
+            scrollToBottom();
         }
 
-        // 移除消息
-        function removeMessage(messageId) {
-            const message = document.getElementById(messageId);
-            if (message) {
-                message.remove();
-            }
+        function appendLoading() {
+            const id = 'loading-' + Date.now();
+            const container = document.getElementById('chatContent');
+            const div = document.createElement('div');
+            div.id = id;
+            div.className = 'message-row assistant';
+            div.innerHTML = `
+                <div class="avatar">
+                    <span class="material-icons-round" style="color:var(--primary-color)">auto_awesome</span>
+                </div>
+                <div class="message-bubble">
+                    <div class="typing-indicator">
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                    </div>
+                </div>
+            `;
+            container.appendChild(div);
+            scrollToBottom();
+            return id;
         }
 
-        // 获取来源标签
+        function removeMessage(id) {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        }
+
+        function scrollToBottom() {
+            const container = document.getElementById('chatContainer');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // 辅助函数
+        function getSourceIcon(source) {
+            if (source === 'weather_api') return 'wb_sunny';
+            if (source === 'traffic_api') return 'directions_car';
+            if (source === 'finance_api') return 'trending_up';
+            if (source === 'google_search_api') return 'public';
+            if (source === 'rag') return 'library_books';
+            return 'smart_toy';
+        }
+
         function getSourceLabel(source) {
-            const labels = {
-                'weather_api': '天气',
-                'traffic_api': '交通',
-                'finance_api': '金融',
-                'google_search_api': '搜索',
+            const map = {
+                'weather_api': '天气实况',
+                'traffic_api': '交通规划',
+                'finance_api': '市场数据',
+                'google_search_api': '全网搜索',
                 'rag': '知识库',
-                'error': '错误',
             };
-            return labels[source] || source;
+            return map[source] || 'AI 模型';
         }
 
-        // 检查 API 健康状态
+        function getStrategyTag(source) {
+            if (source && source.includes('google')) return 'google';
+            if (source && source.includes('rag')) return 'rag';
+            return 'api';
+        }
+
+        // 健康检查
         async function checkHealth() {
             try {
-                const response = await fetch('/api/health');
-                const data = await response.json();
-                const statusText = document.getElementById('status-text');
-                const statusDot = document.getElementById('status-dot');
+                const res = await fetch('/api/health');
+                const data = await res.json();
+                const dot = document.getElementById('status-dot');
+                const text = document.getElementById('status-text');
                 
                 if (data.status === 'healthy') {
-                    statusText.textContent = '系统就绪';
-                    statusDot.classList.remove('unhealthy');
+                    dot.classList.add('active');
+                    text.textContent = '系统在线';
                 } else {
-                    statusText.textContent = '系统异常';
-                    statusDot.classList.add('unhealthy');
+                    dot.classList.remove('active');
+                    text.textContent = '服务异常';
                 }
-            } catch (error) {
-                console.error('Health check failed:', error);
-                const statusText = document.getElementById('status-text');
-                const statusDot = document.getElementById('status-dot');
-                statusText.textContent = '连接失败';
-                statusDot.classList.add('unhealthy');
+            } catch (e) {
+                console.error('Health check failed', e);
             }
         }
 
-        // 页面加载时检查健康状态
-        window.addEventListener('load', () => {
-            checkHealth();
-            setInterval(checkHealth, 30000); // 每30秒检查一次
-        });
+        window.onload = checkHealth;
+        setInterval(checkHealth, 30000);
     </script>
 </body>
 </html>
