@@ -175,10 +175,8 @@
         }
 
         .message-row.user .message-bubble {
-            background: var(--bubble-user);
-            padding: 12px 20px;
-            border-radius: 20px 4px 20px 20px;
-            color: var(--text-primary);
+            background: #e8f0fe;
+            color: #1a73e8;
         }
 
         .message-row.assistant .message-bubble {
@@ -186,6 +184,45 @@
             padding: 0;
             width: 100%;
             color: var(--text-primary);
+        }
+
+        .message-rich-card {
+            background: #f8f9fb;
+            border: 1px solid #e0e3ea;
+            border-radius: 20px;
+            padding: 16px;
+            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+        }
+
+        .message-row.user .message-rich-card {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(59, 130, 246, 0.08));
+            border-color: rgba(99, 102, 241, 0.25);
+        }
+
+        .message-image-card img,
+        .message-rich-card img {
+            width: 100%;
+            max-width: 320px;
+            max-height: 260px;
+            object-fit: contain;
+            border-radius: 12px;
+            display: block;
+            background: #fff;
+        }
+
+        .message-image-caption {
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #5f6368;
+            margin-bottom: 8px;
+        }
+
+        .message-text {
+            font-size: 14px;
+            line-height: 1.6;
+            color: inherit;
         }
 
         /* Markdown 内容样式 */
@@ -610,9 +647,10 @@
         async function sendQuery() {
             const input = document.getElementById('queryInput');
             const query = input.value.trim();
+            const outgoingImageData = imageData; // 发送前保存当前图像数据
             
             // 如果没有文本但有图片，允许发送
-            if (!query && !imageData) return;
+            if (!query && !outgoingImageData) return;
             if (isProcessing) return;
 
             // UI 状态更新
@@ -622,12 +660,12 @@
             document.getElementById('sendButton').disabled = true;
 
             // 添加用户消息 (包含图片)
-            appendMessage('user', query, imageData);
+            appendMessage('user', query, outgoingImageData);
             
             // 清空输入
             input.value = '';
             input.style.height = 'auto';
-            removeImage(); // 发送后清除图片
+            removeImage(); // 发送后清除图片预览
 
             // 添加 Loading 占位符
             const loadingId = appendLoading();
@@ -641,7 +679,7 @@
                         language: 'Chinese',
                         session_id: sessionId,
                         use_deep_search: document.getElementById('useDeepSearch').checked,
-                        image_data: imageData // 添加图片数据
+                        image_data: outgoingImageData // 添加图片数据
                     })
                 });
 
@@ -686,18 +724,34 @@
             bubble.className = 'message-bubble markdown-body';
             
             if (imageData) {
-                // 如果有图片，先显示图片
+                const richCard = document.createElement('div');
+                richCard.className = 'message-rich-card';
+
+                const caption = document.createElement('div');
+                caption.className = 'message-image-caption';
+                caption.textContent = '📷 上传的图片';
+
                 const img = document.createElement('img');
                 img.src = imageData;
-                img.className = 'message-image';
-                img.style.maxWidth = '300px';
-                img.style.borderRadius = '12px';
-                img.style.marginBottom = '8px';
-                bubble.appendChild(img);
-            }
-            
-            if (content) {
-                bubble.textContent = content;
+                img.alt = '用户上传图片';
+
+                richCard.appendChild(caption);
+                richCard.appendChild(img);
+
+                if (content) {
+                    const textBlock = document.createElement('div');
+                    textBlock.className = 'message-text';
+                    textBlock.textContent = content;
+                    textBlock.style.marginTop = '12px';
+                    richCard.appendChild(textBlock);
+                }
+
+                bubble.appendChild(richCard);
+            } else if (content) {
+                const textBlock = document.createElement('div');
+                textBlock.className = 'message-text';
+                textBlock.textContent = content;
+                bubble.appendChild(textBlock);
             }
 
             div.appendChild(avatar);
