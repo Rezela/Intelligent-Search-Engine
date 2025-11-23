@@ -1,6 +1,7 @@
 import json
 import time
 import logging
+import re
 from typing import Any, Dict, Optional
 
 from SourceAPI import HANDLERS
@@ -20,6 +21,20 @@ class DeepSearchManager:
         self.llm_client = rag_engine.llm_client
         self.google_handler = HANDLERS.get("google_search_api")
         self.logger = logging.getLogger(__name__)
+
+    def _extract_json_from_markdown(self, content: str) -> str:
+        """
+        从 markdown 代码块中提取 JSON 内容
+        支持 ```json 和 ``` 格式
+        """
+        # 匹配 ```json 或 ``` 包围的 JSON 内容
+        json_pattern = r'```(?:json)?\s*\n(.*?)\n```'
+        match = re.search(json_pattern, content, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+
+        # 如果没有代码块标记，尝试直接返回内容
+        return content.strip()
 
     def run(self, query: str, language: str = "Chinese") -> Dict[str, Any]:
         attempt_history = []
@@ -86,7 +101,9 @@ class DeepSearchManager:
         resp = self.llm_client.chat(system, user, max_tokens=200, temperature=0.0)
         content = resp.get("content") or ""
         try:
-            data = json.loads(content)
+            # 清理 markdown 代码块标记
+            json_content = self._extract_json_from_markdown(content)
+            data = json.loads(json_content)
             data["satisfied"] = bool(data.get("satisfied"))
             data["confidence"] = float(data.get("confidence", 0))
             return data
