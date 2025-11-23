@@ -10,7 +10,8 @@ from logs import init_logger, new_query_id
 from SourceRouter import SourceRouter
 from SourceAPI import HANDLERS
 from intent_classifier import LLMIntentClassifier
-
+from query_optimze import DeepSeekRAGOptimizer, preprocess_query_with_deepseek
+from typing import Tuple, Dict, Any, List
 # RAG 的 Prompt 构造 （仅使用本地上下文，无信息则不输出）
 def make_rag_prompt(query: str, context: str) -> Tuple[str, str]:
     system = (
@@ -185,9 +186,52 @@ class FullRAG:
         self.intent_classifier = LLMIntentClassifier(client=self.llm_client)
         self.router = SourceRouter(intent_classifier=self.intent_classifier)
 
+        try:
+            self.optimizer = DeepSeekRAGOptimizer("sk-009b68ac7a984590bf76912a64d85990")
+            print("✅ DeepSeek查询优化器已初始化")
+        except Exception as e:
+            print(f"❌ 优化器初始化失败: {e}")
+            self.optimizer = None
+
+
+
+    def _optimize_query(self, user_query: str) -> Tuple[str, Dict[str, Any]]:
+        if self.optimizer is None:
+            return user_query, {
+                "original_question": user_query,
+                "optimized_question": user_query,
+                "success": False,
+                "optimization_notes": "优化器未启用"
+            }
+    
+        try:
+            optimization_result = self.optimizer.optimize_question(user_query)
+            optimized_query = optimization_result["optimized_question"]
+        
+        # 记录优化信息
+            logging.info("==== Query Optimization ====")
+            logging.info(f"Original: {user_query}")
+            logging.info(f"Optimized: {optimized_query}")
+            logging.info(f"Key Entities: {optimization_result.get('key_entities', [])}")
+            logging.info(f"Search Keywords: {optimization_result.get('search_keywords', [])}")
+            logging.info(f"RAG Suitability Score: {optimization_result.get('rag_suitability_score', 'N/A')}")
+            logging.info(f"Optimization Notes: {optimization_result.get('optimization_notes', 'N/A')}")
+        
+            return optimized_query, optimization_result
+        
+        except Exception as e:
+            logging.warning(f"查询优化失败: {e}")
+            return user_query, {
+                "original_question": user_query,
+                "optimized_question": user_query,
+                "success": False,
+                "error": str(e)
+            }
     def query(self, user_query: str, language: str = "Chinese", top_k: int = 5):
         # Step 0: 智能源选择
         t0 = time.time()
+        optimized_query, optimization_result = self._optimize_query(user_query)
+        t_optimize = time.time() - t0
         source = self.router.route(user_query)
         intent_snapshot = self.intent_classifier.last_result
         if intent_snapshot:
@@ -286,17 +330,13 @@ if __name__ == "__main__":
     # 使用持久化数据库
     db = get_db(persistent=True, path="./chroma_db", name="default")
 
-    # 假设已经 save_embeddings(db, chunks, embeddings)
+    
+    # 初始化RAG系统（传入API密钥）
     rag = FullRAG(db)
 
     # 测试不同 query
     queries = [
-        # "哆啦A梦使用的3个秘密道具分别是什么？",   # RAG
-        # "北京今天的天气情况",                   # Weather API
-        # "科大到中环要多久",                      # Traffic API
-        # "中国石化今天的收盘价是多少",             # Finance API
-        "今天关于OpenAI的最新新闻",               # Google Search API
-
+        "今天关于OpenAI的最新新闻",
     ]
 
     for q in queries:
@@ -304,23 +344,32 @@ if __name__ == "__main__":
         print(q)
         result = rag.query(q, language="Chinese")
 
-        if "retrieved" in result and "reranked" in result:
-            print("\n=== Retrieved ===")
-            for i, (chunk, score) in enumerate(result["retrieved"], 1):
-                print(f"[{i}] (retrieval_score={score:.3f}) {chunk}")
+        # 显示优化信息（新增）
+        if "optimization_info" in result:
+            print("\n=== Optimization Info ===")
+            opt_info = result["optimization_info"]
+            print(f"Original: {opt_info.get('original_question')}")
+            print(f"Optimized: {opt_info.get('optimized_question')}")
+            print(f"Success: {opt_info.get('success')}")
+            print(f"Notes: {opt_info.get('optimization_notes')}")
 
-            print("\n=== Reranked ===")
-            for i, (chunk, score) in enumerate(result["reranked"], 1):
-                print(f"[{i}] (rerank_score={score:.3f}) {chunk}")
+        # if "retrieved" in result and "reranked" in result:
+        #     print("\n=== Retrieved ===")
+        #     for i, (chunk, score) in enumerate(result["retrieved"], 1):
+        #         print(f"[{i}] (retrieval_score={score:.3f}) {chunk}")
 
-            print("\n=== Answer ===")
-            print(result["answer"])
-        else:
-            print("\n=== API Result ===")
-            print(_stringify_context(result.get("context", "")))
-            print("\n=== Answer ===")
-            print(result.get("answer", ""))
+        #     print("\n=== Reranked ===")
+        #     for i, (chunk, score) in enumerate(result["reranked"], 1):
+        #         print(f"[{i}] (rerank_score={score:.3f}) {chunk}")
 
-        print("\n=== Timing ===")
-        for k, v in result["timing"].items():
-            print(f"{k}: {v:.3f}s")
+        #     print("\n=== Answer ===")
+        #     print(result["answer"])
+        # else:
+        #     print("\n=== API Result ===")
+        #     print(_stringify_context(result.get("context", "")))
+        #     print("\n=== Answer ===")
+        #     print(result.get("answer", ""))
+
+        # print("\n=== Timing ===")
+        # for k, v in result["timing"].items():
+        #     print(f"{k}: {v:.3f}s")

@@ -5,7 +5,10 @@ from DB import get_db
 from RAG import FullRAG
 from DeepSearch import DeepSearchManager
 from logs import init_logger, new_query_id
+from dotenv import load_dotenv
 
+# 加载 .env 文件
+load_dotenv()
 
 def run_queries(language: str):
     log_filename = init_logger()
@@ -57,7 +60,20 @@ def run_queries(language: str):
         print("\n\n=== Query ===")
         print(q)
         result = deep_search.run(q, language=language)
-
+        if "optimization_info" in result:
+            opt_info = result["optimization_info"]
+            print("\n=== 查询优化信息 ===")
+            print(f"原始查询: {opt_info.get('original_question', q)}")
+            print(f"优化后查询: {opt_info.get('optimized_question', q)}")
+            print(f"优化状态: {'✅ 成功' if opt_info.get('success') else '❌ 失败'}")
+            if opt_info.get('optimization_notes'):
+                print(f"优化说明: {opt_info.get('optimization_notes')}")
+            if opt_info.get('key_entities'):
+                print(f"关键实体: {opt_info.get('key_entities')}")
+            if opt_info.get('search_keywords'):
+                print(f"搜索关键词: {opt_info.get('search_keywords')}")
+            if opt_info.get('rag_suitability_score'):
+                print(f"RAG适用性评分: {opt_info.get('rag_suitability_score')}/10")
         if "retrieved" in result and "reranked" in result:
             print("\n=== Retrieved ===")
             for i, (chunk, score) in enumerate(result["retrieved"], 1):
