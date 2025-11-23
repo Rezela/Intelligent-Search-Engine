@@ -1,27 +1,28 @@
 import os
-import json
 import logging
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from dotenv import load_dotenv
+from typing import List, Union, Dict, Any, Optional
+import PIL.Image
 
 # 加载 .env 文件
 load_dotenv()
-
 
 class GeminiClient:
     def __init__(self):
         self.api_key = os.getenv("GOOGLE_API_KEY")
         if not self.api_key:
             raise ValueError("未找到 GOOGLE_API_KEY，请检查 .env 文件")
-
+        
         # 配置 Google API
         genai.configure(api_key=self.api_key)
-
+        
         # 自动选择最佳可用模型
         self.model_name = self._get_best_available_model()
         logging.info(f"GeminiClient 已初始化，使用模型: {self.model_name}")
-
+        
+        # 宽松的安全设置，防止误杀
         self.safety_settings = {
             HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
             HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
@@ -29,112 +30,144 @@ class GeminiClient:
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
         }
 
-    def _get_best_available_model(self):
+    def _get_best_available_model(self) -> str:
+        """根据环境自动选择最佳模型"""
         preferred_order = [
             "gemini-2.0-flash",
             "gemini-2.0-flash-001",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
-            "gemini-pro",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash-thinking-exp",
+            # "gemini-3-pro-preview",
+            # "gemini-3-pro-image-preview",
+            # "nano-banana-pro-preview",
         ]
-
         try:
             all_models = genai.list_models()
-            available_models = [m.name.replace("models/", "") for m in all_models if
-                                'generateContent' in m.supported_generation_methods]
-
+            available_models = [m.name.replace("models/", "") for m in all_models if 'generateContent' in m.supported_generation_methods]
+            
             for preference in preferred_order:
                 if preference in available_models:
                     return preference
-
+            
             if available_models:
                 return available_models[0]
-
         except Exception as e:
             logging.error(f"无法列出模型列表: {e}")
-
         return "gemini-pro"
 
-    def chat(self, system_prompt, user_prompt, max_tokens=1000, temperature=0.7):
+    def _init_model(self, system_instruction: Optional[str] = None):
+        """内部方法：初始化模型实例"""
+        return genai.GenerativeModel(
+            model_name=self.model_name,
+            system_instruction=system_instruction
+        )
+
+    def generate_content(self, contents: Union[str, List[Any]], system_instruction: str = None) -> Dict[str, Any]:
+        """
+        [多模态] 通用生成接口 (单轮)
+        支持纯文本、图片、或 文本+图片 混合输入
+        :param contents: 可以是字符串，或者包含 [str, PIL.Image, ...] 的列表
+        """
         try:
-            model = genai.GenerativeModel(
-                model_name=self.model_name,
-                system_instruction=system_prompt
-            )
-
-            generation_config = genai.types.GenerationConfig(
-                max_output_tokens=max_tokens,
-                temperature=temperature,
-            )
-
+            model = self._init_model(system_instruction)
             response = model.generate_content(
-                user_prompt,
-                generation_config=generation_config,
+                contents,
                 safety_settings=self.safety_settings
             )
+            return self._parse_response(response)
+        except Exception as e:
+            logging.error(f"Generate Content 失败: {e}")
+            return {"content": "", "error": str(e)}
 
-            # --- 修复的部分开始 ---
-            content = ""
-            finish_reason = "UNKNOWN"
+    def chat_with_history(self, message: Union[str, List[Any]], history: List[Dict[str, Any]] = [], system_instruction: str = None) -> Dict[str, Any]:
+        """
+        [多轮对话] 聊天接口
+        :param message: 当前用户的新消息 (文本或多模态)
+        :param history: 历史消息列表，格式需符合 Gemini 标准 [{'role': 'user'|'model', 'parts': [...]}]
+        """
+        try:
+            model = self._init_model(system_instruction)
+            chat_session = model.start_chat(history=history)
+            response = chat_session.send_message(
+                message,
+                safety_settings=self.safety_settings
+            )
+            return self._parse_response(response)
+        except Exception as e:
+            logging.error(f"Chat Session 失败: {e}")
+            return {"content": "", "error": str(e)}
 
-            # 方法 A: 使用 SDK 提供的便捷属性 (推荐)
-            try:
-                content = response.text
-                return {"content": content, "raw": str(response)}
-            except Exception:
-                # 如果因为安全原因被拦截，response.text 会抛出异常，此时我们手动解析
-                pass
+    def chat(self, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+        """
+        [兼容旧接口] 简单的单轮文本对话
+        保留此方法以兼容 RAG.py 等旧代码
+        """
+        return self.generate_content(contents=user_prompt, system_instruction=system_prompt)
 
-            # 方法 B: 手动解析 Candidate 结构
+    def _parse_response(self, response) -> Dict[str, Any]:
+        """统一解析 Gemini 响应"""
+        content = ""
+        finish_reason = "UNKNOWN"
+        try:
+            # 尝试直接获取文本 (SDK 智能处理)
+            content = response.text
+        except Exception:
+            # 处理安全拦截或其他异常情况
             if response.candidates:
                 candidate = response.candidates[0]
                 finish_reason = candidate.finish_reason.name
-
-                # 正确的结构是 candidate.content.parts
                 if candidate.content and candidate.content.parts:
                     content = candidate.content.parts[0].text
                 else:
-                    logging.warning(f"Gemini 返回内容为空，结束原因: {finish_reason}")
                     return {
-                        "content": "抱歉，由于安全策略，内容无法显示。",
+                        "content": "内容被安全策略拦截或无法生成。",
                         "error": f"Finish Reason: {finish_reason}",
                         "raw": str(response)
                     }
-            # --- 修复的部分结束 ---
+        
+        return {"content": content, "raw": str(response)}
 
-            return {
-                "content": content,
-                "raw": str(response)
-            }
+    @staticmethod
+    def format_history(app_history: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+        """
+        辅助工具：将简单的应用历史格式转换为 Gemini API 格式
+        假设 app_history 格式: [{'role': 'user', 'content': '...'}, {'role': 'assistant', 'content': '...'}]
+        """
+        gemini_history = []
+        for msg in app_history:
+            role = 'user' if msg.get('role') == 'user' else 'model'
+            content = msg.get('content', '')
+            if content:
+                gemini_history.append({'role': role, 'parts': [content]})
+        return gemini_history
 
-        except Exception as e:
-            logging.error(f"Gemini API 调用失败: {e}")
-            return {
-                "content": "",
-                "error": str(e)
-            }
-
-
+# 兼容性别名
 HKGAIClient = GeminiClient
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    try:
-        print("-" * 30)
-        client = GeminiClient()
-        print(f"✅ 成功连接! 当前选中的模型是: {client.model_name}")
-        print("正在发送测试消息...")
+    client = GeminiClient()
+    print(f"✅ 模型就绪: {client.model_name}")
 
-        sys_p = "你是一个幽默的助手。"
-        user_p = "简单介绍一下你自己 (Gemini)。"
+    # --- 测试 1: 纯文本 (单轮) ---
+    print("\n--- 测试 1: 文本生成 ---")
+    res = client.generate_content("用emoji画一只猫")
+    print(f"回答: {res['content']}")
 
-        result = client.chat(sys_p, user_p)
+    # --- 测试 2: 多轮对话 ---
+    print("\n--- 测试 2: 多轮对话 ---")
+    history = [
+        {"role": "user", "parts": ["你好，我叫小明"]},
+        {"role": "model", "parts": ["你好小明！很高兴认识你。"]}
+    ]
+    res_chat = client.chat_with_history("我刚才说了我叫什么？", history=history)
+    print(f"回答: {res_chat['content']}")
 
-        print("-" * 30)
-        if result.get("content"):
-            print(f"回答:\n{result['content']}")
-        else:
-            print(f"❌ 测试失败: {result.get('error')}")
-
-    except Exception as e:
-        print(f"❌ 初始化失败: {e}")
+    # --- 测试 3: 多模态 (如果本地有图片) ---
+    # try:
+    #     img = PIL.Image.open("test_image.jpg")
+    #     print("\n--- 测试 3: 图片理解 ---")
+    #     res_img = client.generate_content(["这张图里有什么？", img])
+    #     print(f"回答: {res_img['content']}")
+    # except Exception:
+    #     print("\n(跳过图片测试: 未找到 test_image.jpg)")
