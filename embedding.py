@@ -1,26 +1,23 @@
 from sentence_transformers import SentenceTransformer
 from typing import List
 
-# english_embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-# chinese_embedding_model = SentenceTransformer('shibing624/text2vec-base-chinese')
+DEFAULT_EMBEDDING_MODEL = "google/embeddinggemma-300m"
 
-
-# embedding模型全局缓存
+# embedding模型全局缓存（按模型名称缓存，避免重复加载）
 embedding_cache = {}
 embedding_models = {
-    # 'English': "sentence-transformers/all-MiniLM-L6-v2",  # 384 dimensional
-    'English': "sentence-transformers/all-mpnet-base-v2",  # 768 dimensional
-    'Chinese': "shibing624/text2vec-base-chinese"  # 768 dimensional
+    'English': DEFAULT_EMBEDDING_MODEL,
+    'Chinese': DEFAULT_EMBEDDING_MODEL,
+    'Multilingual': DEFAULT_EMBEDDING_MODEL,
 }
 
-# Lazy loading embedding model
+
 def get_embedding_model(language: str):
-    if language not in embedding_cache:
-        if language not in embedding_models:
-            raise ValueError(f"Unsupported language: {language}")
-        # 初始化 embedding
-        embedding_cache[language] = SentenceTransformer(embedding_models[language])
-    return embedding_cache[language]
+    """Lazy-load embedding model, defaulting to EmbeddingGemma for all languages."""
+    model_name = embedding_models.get(language, DEFAULT_EMBEDDING_MODEL)
+    if model_name not in embedding_cache:
+        embedding_cache[model_name] = SentenceTransformer(model_name)
+    return embedding_cache[model_name]
 
 
 # 转换为embedding向量
